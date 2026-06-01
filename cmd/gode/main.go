@@ -3,8 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"gode/config/prompts"
 	"gode/internal/agent"
@@ -41,6 +45,30 @@ func init() {
 var logger zerolog.Logger
 
 func main() {
+	dirFlag := flag.String("dir", "", "Directory to recursively scan and provide to the LLM")
+	flag.Parse()
+
+	var fileList []string
+
+	if *dirFlag != "" {
+		dir, err := filepath.Abs(*dirFlag)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to resolve absolute path")
+			os.Exit(1)
+		}
+
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			log.Error().Str("dir", dir).Msg("directory does not exist")
+			os.Exit(1)
+		}
+
+		fileList, err = readAllFiles(dir)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to read directory")
+			os.Exit(1)
+		}
+	}
+
 	file, err := os.OpenFile(
 		"app.log",
 		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
@@ -63,7 +91,7 @@ func main() {
 		Messages: []agent.Message{
 			{
 				Role:    SystemRole,
-				Content: prompts.CodingPrompt,
+				Content: prompts.BuildPrompt(fileList),
 			},
 		},
 		ToolDescriptions: []agent.ToolDescription{
@@ -82,11 +110,47 @@ func main() {
 	}
 }
 
+// readAllFiles recursively reads all files in the given directory and returns their relative paths.
+func readAllFiles(root string) ([]string, error) {
+	var files []string
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories
+		if d.IsDir() {
+			return nil
+		}
+
+		// Skip hidden files and directories
+		if strings.HasPrefix(d.Name(), ".") {
+			return nil
+		}
+
+		// Store relative path from root
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+
+		files = append(files, rel)
+		return nil
+	})
+
+	return files, err
+}
+
 func userLoop(session *llamacpp.Session, userChan chan any) {
-	var currentCtx context.Context
 	var cancel context.CancelFunc
 
 	for msg := range userChan {
+		// Cancel the previous goroutine's context if it exists
+		if cancel != nil {
+			cancel()
+		}
+
 		switch msg := msg.(type) {
 		case string:
 			session.StoreMessages(agent.Message{
@@ -111,7 +175,7 @@ func userLoop(session *llamacpp.Session, userChan chan any) {
 			)
 		}
 
-		currentCtx, cancel = context.WithCancel(context.Background())
+		currentCtx, cancel := context.WithCancel(context.Background())
 
 		go func(ctx context.Context, cancel context.CancelFunc, userMsg any) {
 			output, toolCall, err := llm.ChatStreamWithContext(ctx, session)
@@ -149,7 +213,6 @@ func userLoop(session *llamacpp.Session, userChan chan any) {
 }
 
 func handleChunk(ui *tea.Program, chunk string) {
-	logger.Debug().Msgf("sending chunk: %s", chunk)
 	ui.Send(tui.MessageChunk{Content: chunk})
 }
 

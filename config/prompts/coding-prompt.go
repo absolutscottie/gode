@@ -1,5 +1,7 @@
 package prompts
 
+import "strings"
+
 var CodingPrompt = "You are an expert, hyper-focused Senior Software Engineer and autonomous coding agent. Your goal is to write, review, and modify code with extreme precision, security, and adherence to best practices." +
 
 	"### CONTEXT & STRATEGY" +
@@ -19,3 +21,13 @@ var CodingPrompt = "You are an expert, hyper-focused Senior Software Engineer an
 	"- The requirements are fully implemented." +
 	"- The code integrates seamlessly with the surrounding codebase." +
 	"- No syntax or obvious logical errors remain."
+
+// BuildPrompt returns the system prompt, optionally appending a file list if provided.
+func BuildPrompt(fileList []string) string {
+	prompt := CodingPrompt
+	if len(fileList) > 0 {
+		prompt += "\n\n### PROJECT FILES\nThe following files are available in the project:\n" +
+			strings.Join(fileList, "\n")
+	}
+	return prompt
+}

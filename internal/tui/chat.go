@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"strings"
+	"time"
+
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -28,6 +31,8 @@ type ChatMessage struct {
 	Content string
 }
 
+type TickMsg time.Time
+
 func NewChatMessage(sender, content string) ChatMessage {
 	return ChatMessage{
 		Sender:  sender,
@@ -44,6 +49,7 @@ type Model struct {
 	width         int
 	height        int
 	userChan      chan any
+	blenoffset    int
 
 	currentConfirmationRequest ConfirmationRequest
 }
@@ -73,13 +79,20 @@ func InitialModel(userChan chan any) Model {
 		messages:      []ChatMessage{},
 		userChan:      userChan,
 		confirmDialog: NewConfirmationDialog(),
+		blenoffset:    0,
 	}
 
 	return p
 }
 
+func tickEvery() tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+		return TickMsg(t)
+	})
+}
+
 func (p Model) Init() tea.Cmd {
-	return nil
+	return tickEvery()
 }
 
 func (p Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -102,9 +115,16 @@ func (p Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return p.handleUserInput(msg)
 
+	case TickMsg:
+		return p.handleTick()
 	}
 
 	return p, nil
+}
+
+func (p Model) handleTick() (tea.Model, tea.Cmd) {
+	p.confirmDialog.Update()
+	return p, tickEvery()
 }
 
 func (p Model) handleConfirmationRequest(msg ConfirmationRequest) (tea.Model, tea.Cmd) {
@@ -199,13 +219,29 @@ func (p Model) refreshMessages() (tea.Model, tea.Cmd) {
 		contentMessages = p.messages
 	}
 
-	senderStyle := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder())
-	renderer, _ := glamour.NewTermRenderer(glamour.WithWordWrap(p.width), glamour.WithStandardStyle("dark"))
+	cosmoColor := lipgloss.Color("#9900ff")
+	youColor := lipgloss.Color("#34ccde")
+
+	cosmoBorderStyle := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, false, true).BorderForeground(cosmoColor)
+
+	youBorderStyle := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, false, true).BorderForeground(youColor)
+
+	//senderStyle := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder())
+	renderer, _ := glamour.NewTermRenderer(glamour.WithWordWrap(p.width-1), glamour.WithStandardStyle("dracula"))
 
 	var content []string
 	for _, msg := range contentMessages {
 		rendered, _ := renderer.Render(msg.Content)
-		cs := []string{senderStyle.Render(msg.Sender), rendered}
+
+		if strings.Contains(msg.Sender, "Cosmo") {
+			rendered = cosmoBorderStyle.Render(rendered)
+		} else {
+			rendered = youBorderStyle.Render(rendered)
+		}
+
+		cs := []string{msg.Sender, rendered}
 		content = append(content, cs...)
 	}
 
