@@ -27,6 +27,8 @@ type Session struct {
 	ChunkFn          func(string)
 	FullMessageFn    func(string)
 	ConfirmFn        func(string)
+	StartFn          func()
+	StopFn           func()
 	messageMutex     sync.Mutex
 }
 

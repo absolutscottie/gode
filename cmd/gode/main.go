@@ -100,6 +100,8 @@ func main() {
 		ChunkFn:       func(s string) { handleChunk(ui, s) },
 		FullMessageFn: func(s string) { handleFullMessage(ui, s) },
 		ConfirmFn:     func(s string) { promptAndWait(ui, s) },
+		StartFn:       func() { sendAgentStart(ui) },
+		StopFn:        func() { sendAgentStop(ui) },
 	}
 
 	go userLoop(session, userChan)
@@ -177,6 +179,7 @@ func userLoop(session *llamacpp.Session, userChan chan any) {
 		currentCtx, cancel := context.WithCancel(context.Background())
 
 		go func(ctx context.Context, cancel context.CancelFunc, userMsg any) {
+			session.StartFn()
 			output, toolCall, err := llm.ChatStreamWithContext(ctx, session)
 			if err != nil {
 				if ctx.Err() != nil {
@@ -185,6 +188,7 @@ func userLoop(session *llamacpp.Session, userChan chan any) {
 					logger.Error().Msgf("llm error: %s", err)
 				}
 			}
+			session.StopFn()
 
 			if output != "" {
 				session.FullMessageFn(output)
@@ -263,6 +267,14 @@ func promptAndWait(ui *tea.Program, userPrompt string) bool {
 	answer := <-cr.ResultChan
 	close(cr.ResultChan)
 	return answer
+}
+
+func sendAgentStart(ui *tea.Program) {
+	ui.Send(tui.AgentStart{})
+}
+
+func sendAgentStop(ui *tea.Program) {
+	ui.Send(tui.AgentStop{})
 }
 
 func buildToolConfirmationPrompt(t *agent.ToolCall) string {
