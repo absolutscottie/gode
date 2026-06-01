@@ -14,7 +14,6 @@ import (
 	"gode/internal/agent"
 	"gode/internal/agent/llamacpp"
 	"gode/internal/filesystem"
-	"gode/internal/toolerrors"
 	"gode/internal/tui"
 
 	tea "charm.land/bubbletea/v2"
@@ -198,11 +197,11 @@ func userLoop(session *llamacpp.Session, userChan chan any) {
 
 			if toolCall != nil {
 				session.ConfirmFn(buildToolConfirmationPrompt(toolCall))
-				content, err := handleToolCall(toolCall)
+				result, err := handleToolCall(toolCall)
 				if err != nil {
 					toolCall.Result = err.Error()
 				} else {
-					toolCall.Result = content
+					toolCall.Result = result
 				}
 
 				userChan <- toolCall
@@ -221,18 +220,19 @@ func handleFullMessage(ui *tea.Program, fullMessage string) {
 	ui.Send(tui.MessageFull{Content: fullMessage})
 }
 
-func handleToolCall(t *agent.ToolCall) (string, *toolerrors.ToolError) {
+func handleToolCall(t *agent.ToolCall) (string, error) {
 	switch t.Function.Name {
 	case "file_read":
 		var args filesystem.FileReadArgs
 		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
 		if err != nil {
 			logger.Error().Msgf("failed to parse arguments: %s", err)
-			return "", toolerrors.New(500, err.Error())
+			return "", fmt.Errorf("failed to parse arguments: %s", err)
 		}
 		result := filesystem.FileRead(args)
 		if !result.Success {
 			logger.Error().Msgf("file read error: %s", result.Error)
+			return "", fmt.Errorf("file read error: %s", result.Error)
 		}
 		return result.Content, nil
 	case "file_write":
@@ -240,15 +240,16 @@ func handleToolCall(t *agent.ToolCall) (string, *toolerrors.ToolError) {
 		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
 		if err != nil {
 			logger.Error().Msgf("failed to parse arguments: %s", err)
-			return "", toolerrors.New(500, err.Error())
+			return "", fmt.Errorf("failed to parse arguments: %s", err)
 		}
 		result := filesystem.FileWrite(args)
 		if !result.Success {
 			logger.Error().Msgf("file write error: %s", result.Error)
+			return "", fmt.Errorf("file write error: %s", result.Error)
 		}
-		return result.Error, nil
+		return "", nil
 	default:
-		return "", toolerrors.New(404, "tool not found.")
+		return "", fmt.Errorf("tool not found: %s", t.Function.Name)
 	}
 }
 
