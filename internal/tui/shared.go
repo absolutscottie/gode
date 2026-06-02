@@ -36,3 +36,11 @@ func NewChatMessage(sender, content string) ChatMessage {
 type DecisionMessage struct {
 	Approved bool
 }
+
+type TokenUsageMessage struct {
+	PromptTokens              int
+	CompletionTokens          int
+	TotalTokens               int
+	PromptCachedTokens        int
+	CompletionReasoningTokens int
+}

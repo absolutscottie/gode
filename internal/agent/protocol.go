@@ -20,6 +20,21 @@ type Choices struct {
 	Delta        Delta  `json:"delta"`
 }
 
+type TokenDetails struct {
+	CachedTokens             int `json:"cached_tokens,omitempty"`
+	ReasoningTokens          int `json:"reasoning_tokens,omitempty"`
+	AcceptedPredictionTokens int `json:"accepted_prediction_tokens,omitempty"`
+	RejectedPredictionTokens int `json:"rejected_prediction_tokens,omitempty"`
+}
+
+type Usage struct {
+	PromptTokens            int          `json:"prompt_tokens"`
+	CompletionTokens        int          `json:"completion_tokens"`
+	TotalTokens             int          `json:"total_tokens"`
+	PromptTokensDetails     TokenDetails `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails TokenDetails `json:"completion_tokens_details,omitempty"`
+}
+
 type ChunkedResponse struct {
 	Created           int64     `json:"created"`
 	ID                string    `json:"id"`
@@ -27,6 +42,7 @@ type ChunkedResponse struct {
 	SystemFingerprint string    `json:"system_fingerprint"`
 	Object            string    `json:"object"`
 	Choices           []Choices `json:"choices"`
+	Usage             Usage     `json:"usage,omitempty"`
 }
 
 type ToolCall struct {

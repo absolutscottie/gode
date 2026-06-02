@@ -29,6 +29,7 @@ type Session struct {
 	ConfirmFn        func(string)
 	StartFn          func()
 	StopFn           func()
+	TokenUsageFn     func(agent.Usage)
 	messageMutex     sync.Mutex
 }
 
@@ -59,7 +60,7 @@ func (llama LlamacppProvider) ChatStreamWithContext(ctx context.Context, session
 	payload := agent.Payload{
 		Messages:    session.Messages,
 		Tools:       session.ToolDescriptions,
-		Temperature: 0.2,
+		Temperature: 0.4,
 		Stream:      true,
 	}
 
@@ -74,7 +75,7 @@ func (llama LlamacppProvider) ChatStreamWithContext(ctx context.Context, session
 	}
 
 	defer resp.Body.Close()
-	fullMessage, toolCall, err := llama.scanResponse(resp.Body, session.ChunkFn)
+	fullMessage, toolCall, err := llama.scanResponse(resp.Body, session.ChunkFn, session.TokenUsageFn)
 
 	return fullMessage, toolCall, nil
 }
@@ -99,7 +100,7 @@ func (llama LlamacppProvider) buildRequest(ctx context.Context, payload agent.Pa
 	return req, nil
 }
 
-func (llama LlamacppProvider) scanResponse(body io.ReadCloser, chunkFn func(string)) (string, *agent.ToolCall, error) {
+func (llama LlamacppProvider) scanResponse(body io.ReadCloser, chunkFn func(string), tokenUsageFn func(agent.Usage)) (string, *agent.ToolCall, error) {
 	var toolCall *agent.ToolCall
 	fullMessage := ""
 
@@ -144,6 +145,10 @@ func (llama LlamacppProvider) scanResponse(body io.ReadCloser, chunkFn func(stri
 
 		if c != "" {
 			chunkFn(c)
+		}
+
+		if ch.Usage.TotalTokens > 0 && tokenUsageFn != nil {
+			tokenUsageFn(ch.Usage)
 		}
 	}
 

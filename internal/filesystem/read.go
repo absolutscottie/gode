@@ -32,16 +32,17 @@ var FileReadTool = agent.ToolDescription{
 				},
 			},
 		},
-		Required: []string {
+		Required: []string{
 			"path",
-		}
+		},
+		AdditionalProperties: false,
 	},
 }
 
 type FileReadArgs struct {
-	Path       string `json:"path"`
-	StartLine  *int   `json:"start_line,omitempty"`
-	EndLine    *int   `json:"end_line,omitempty"`
+	Path      string `json:"path"`
+	StartLine *int   `json:"start_line,omitempty"`
+	EndLine   *int   `json:"end_line,omitempty"`
 }
 
 type FileReadResult struct {
