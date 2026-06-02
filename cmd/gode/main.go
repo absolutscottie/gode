@@ -96,10 +96,12 @@ func main() {
 		ToolDescriptions: []agent.ToolDescription{
 			filesystem.FileReadTool,
 			filesystem.FileWriteTool,
+			filesystem.FileEditTool,
+			filesystem.FileInfoTool,
 		},
 		ChunkFn:       func(s string) { handleChunk(ui, s) },
 		FullMessageFn: func(s string) { handleFullMessage(ui, s) },
-		ConfirmFn:     func(s string) { promptAndWait(ui, s) },
+		ConfirmFn:     func(s string) bool { return promptAndWait(ui, s) },
 		StartFn:       func() { sendAgentStart(ui) },
 		StopFn:        func() { sendAgentStop(ui) },
 	}
@@ -200,12 +202,20 @@ func userLoop(session *llamacpp.Session, userChan chan any) {
 			}
 
 			if toolCall != nil {
-				session.ConfirmFn(buildToolConfirmationPrompt(toolCall))
-				result, err := handleToolCall(toolCall)
+				prompt, err := buildToolConfirmationPrompt(toolCall)
 				if err != nil {
 					toolCall.Result = err.Error()
+				}
+				answer := session.ConfirmFn(prompt)
+				if !answer {
+					toolCall.Result = fmt.Errorf("user denied tool request").Error()
 				} else {
-					toolCall.Result = result
+					result, err := handleToolCall(toolCall)
+					if err != nil {
+						toolCall.Result = err.Error()
+					} else {
+						toolCall.Result = result
+					}
 				}
 
 				userChan <- toolCall
@@ -277,27 +287,47 @@ func sendAgentStop(ui *tea.Program) {
 	ui.Send(tui.AgentStop{})
 }
 
-func buildToolConfirmationPrompt(t *agent.ToolCall) string {
+func buildToolConfirmationPrompt(t *agent.ToolCall) (string, error) {
 	switch t.Function.Name {
 	case "file_read":
 		var args filesystem.FileReadArgs
 		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
 		if err != nil {
 			logger.Error().Msgf("failed to parse arguments: %s", err)
-			return ""
+			return "", err
 		}
 
-		return fmt.Sprintf("Do you want to allow Cosmo to **read** `%s`?", args.Path)
+		return fmt.Sprintf("Do you want to allow Cosmo to **read** `%s`?", args.Path), nil
 	case "file_write":
 		var args filesystem.FileWriteArgs
 		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
 		if err != nil {
 			logger.Error().Msgf("failed to parse arguments: %s", err)
-			return ""
+			return "", err
 		}
 
-		return fmt.Sprintf("Do you want to allow Cosmo to **write** `%s`?", args.Path)
+		return fmt.Sprintf("Do you want to allow Cosmo to **write** `%s`?", args.Path), nil
+
+	case "file_edit":
+		var args filesystem.FileEditArgs
+		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
+		if err != nil {
+			logger.Error().Msgf("failed to parse arguments: %s", err)
+			return "", err
+		}
+
+		return fmt.Sprintf("Do you want to allow Cosmo to **edit** `%s`?", args.Path), nil
+
+	case "file_info":
+		var args filesystem.FileInfoArgs
+		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
+		if err != nil {
+			logger.Error().Msgf("failed to parse arguments: %s", err)
+			return "", err
+		}
+
+		return fmt.Sprintf("Do you want to allow Cosmo to **get info** on `%s`?", args.Path), nil
 	}
 
-	return "How much wood could a wood chuck chuck if a wood chuck could chuck wood?"
+	return "How much wood could a wood chuck chuck if a wood chuck could chuck wood?", fmt.Errorf("unknown tool request: " + t.Function.Name)
 }

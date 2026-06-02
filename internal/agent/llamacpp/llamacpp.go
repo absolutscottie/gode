@@ -26,7 +26,7 @@ type Session struct {
 	ToolDescriptions []agent.ToolDescription
 	ChunkFn          func(string)
 	FullMessageFn    func(string)
-	ConfirmFn        func(string)
+	ConfirmFn        func(string) bool
 	StartFn          func()
 	StopFn           func()
 	TokenUsageFn     func(agent.Usage)
