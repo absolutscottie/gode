@@ -6,10 +6,11 @@ type ToolDescription struct {
 }
 
 type Function struct {
-	Name        string        `json:"name"`
-	Description string        `json:"description"`
-	Params      FunctionParam `json:"parameters"`
-	Required    []string      `json:"required"`
+	Name                 string        `json:"name"`
+	Description          string        `json:"description"`
+	Params               FunctionParam `json:"parameters"`
+	Required             []string      `json:"required"`
+	AdditionalProperties bool          `json:"additional_properties"`
 }
 
 type FunctionParam struct {
@@ -18,6 +19,10 @@ type FunctionParam struct {
 }
 
 type FunctionParamProperty struct {
-	Type        string `json:"type"`
-	Description string `json:"description"`
+	Type                 string                           `json:"type"`
+	Description          string                           `json:"description"`
+	Items                *FunctionParamProperty           `json:"items,omitempty"`
+	Properties           map[string]FunctionParamProperty `json:"properties,omitempty"`
+	Required             []string                         `json:"required,omitempty"`
+	AdditionalProperties bool                             `json:"additional_properties"`
 }
