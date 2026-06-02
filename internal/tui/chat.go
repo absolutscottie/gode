@@ -2,7 +2,6 @@ package tui
 
 import (
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
@@ -13,39 +12,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type MessageChunk struct {
-	Content string
-}
-
-type MessageFull struct {
-	Content string
-}
-
-type ConfirmationRequest struct {
-	ResultChan chan bool
-	Question   string
-}
-
-type ChatMessage struct {
-	Sender  string
-	Content string
-}
-
-type TickMsg time.Time
-
-func NewChatMessage(sender, content string) ChatMessage {
-	return ChatMessage{
-		Sender:  sender,
-		Content: content,
-	}
-}
-
 type Model struct {
 	messages      []ChatMessage
 	agentChunks   string
 	textarea      textarea.Model
 	viewport      viewport.Model
-	confirmDialog *ConfirmationDialog
+	confirmDialog DialogModel
 	width         int
 	height        int
 	userChan      chan any
@@ -54,7 +26,7 @@ type Model struct {
 	currentConfirmationRequest ConfirmationRequest
 }
 
-func InitialModel(userChan chan any) Model {
+func InitialModel(userChan chan any) tea.Model {
 	ta := textarea.New()
 	ta.Placeholder = "Type a message and press Enter..."
 	ta.SetVirtualCursor(false)
@@ -78,17 +50,11 @@ func InitialModel(userChan chan any) Model {
 		viewport:      vp,
 		messages:      []ChatMessage{},
 		userChan:      userChan,
-		confirmDialog: NewConfirmationDialog(),
+		confirmDialog: InitialDialogModel(),
 		blenoffset:    0,
 	}
 
 	return p
-}
-
-func tickEvery() tea.Cmd {
-	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
-		return TickMsg(t)
-	})
 }
 
 func (p Model) Init() tea.Cmd {
@@ -96,81 +62,89 @@ func (p Model) Init() tea.Cmd {
 }
 
 func (p Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var mCmd, dCmd tea.Cmd
 	switch msg := msg.(type) {
 	case ConfirmationRequest:
-		return p.handleConfirmationRequest(msg)
+		p, mCmd = p.handleConfirmationRequest(msg)
 
 	case MessageChunk:
-		return p.handleAgentChunk(msg)
+		p, mCmd = p.handleAgentChunk(msg)
 
 	case MessageFull:
-		return p.handleAgentInput(msg)
+		p, mCmd = p.handleAgentInput(msg)
 
 	case tea.WindowSizeMsg:
-		return p.handleWindowResize(msg)
+		p, mCmd = p.handleWindowResize(msg)
 
 	case tea.PasteMsg:
-		return p.handlePaste(msg)
+		p, mCmd = p.handlePaste(msg)
 
 	case tea.KeyPressMsg:
-		return p.handleUserInput(msg)
+		p, mCmd = p.handleUserInput(msg)
+
+	case DecisionMessage:
+		p, mCmd = p.handleUserInputConfirmation(msg)
 
 	case TickMsg:
-		return p.handleTick()
+		p, mCmd = p.handleTick(msg)
 	}
 
+	p.confirmDialog, dCmd = p.confirmDialog.Update(msg)
+
+	if _, ok := msg.(ConfirmationRequest); ok {
+		p = p.resizeComponents()
+	}
+
+	return p, tea.Batch(mCmd, dCmd)
+}
+
+func (p Model) handleTick(msg tea.Msg) (Model, tea.Cmd) {
+	log.Logger.Debug().Msgf("received tick message")
 	return p, nil
 }
 
-func (p Model) handleTick() (tea.Model, tea.Cmd) {
-	p.confirmDialog.Update()
-	return p, tickEvery()
-}
-
-func (p Model) handleConfirmationRequest(msg ConfirmationRequest) (tea.Model, tea.Cmd) {
+func (p Model) handleConfirmationRequest(msg ConfirmationRequest) (Model, tea.Cmd) {
 	log.Logger.Info().Msgf("received confirmation request: %#v", msg)
-	p.confirmDialog.SetVisible(true)
-	p.confirmDialog.SetQuestion(msg.Question)
 	p.currentConfirmationRequest = msg
 	return p, nil
 }
 
-func (p Model) handleAgentChunk(msg MessageChunk) (tea.Model, tea.Cmd) {
+func (p Model) handleAgentChunk(msg MessageChunk) (Model, tea.Cmd) {
 	log.Logger.Debug().Msg("handleAgentChunk()")
 	p.agentChunks += string(msg.Content)
 	return p.refreshMessages()
 }
 
-func (p Model) handleAgentInput(msg MessageFull) (tea.Model, tea.Cmd) {
+func (p Model) handleAgentInput(msg MessageFull) (Model, tea.Cmd) {
 	log.Logger.Debug().Msg("handleAgentInput()")
 	p.agentChunks = ""
 	p.messages = append(p.messages, NewChatMessage("Cosmo", msg.Content))
 	return p.refreshMessages()
 }
 
-func (p Model) handlePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
+func (p Model) handlePaste(msg tea.PasteMsg) (Model, tea.Cmd) {
 	p.textarea.InsertString(msg.Content)
 	return p, nil
 }
 
-func (p Model) handleWindowResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+func (p Model) handleWindowResize(msg tea.WindowSizeMsg) (Model, tea.Cmd) {
 	p.width = msg.Width
 	p.height = msg.Height
 
 	return p.resizeComponents(), nil
 }
 
-func (p Model) resizeComponents() tea.Model {
-	p.confirmDialog.SetWidth(p.width)
+func (p Model) resizeComponents() Model {
 	p.viewport.SetWidth(p.width)
 	p.viewport.SetHeight(p.height - p.textarea.Height() - p.confirmDialog.GetHeight())
 	p.textarea.SetWidth(p.width)
 	return p
 }
 
-func (p Model) handleUserInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (p Model) handleUserInput(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	if p.confirmDialog.Visible() {
-		return p.handleUserInputConfirmation(msg)
+		// skip updates if we're sending key messages to the dialog
+		return p, nil
 	}
 
 	var cmd tea.Cmd
@@ -198,19 +172,22 @@ func (p Model) handleUserInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return p, cmd
 }
 
-func (p Model) handleUserInputConfirmation(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "1": //Yes
-		p.currentConfirmationRequest.ResultChan <- true
-	case "2": //No
-		p.currentConfirmationRequest.ResultChan <- false
+func (p Model) handleUserInputConfirmation(msg DecisionMessage) (Model, tea.Cmd) {
+	var dCmd tea.Cmd
+	p.confirmDialog, dCmd = p.confirmDialog.handleDecision(msg)
+
+	p = p.resizeComponents()
+
+	ch := p.currentConfirmationRequest.ResultChan
+	cmd := func() tea.Msg {
+		ch <- msg.Approved
+		return nil
 	}
 
-	p.confirmDialog.SetVisible(false)
-	return p, nil
+	return p, tea.Batch(cmd, dCmd)
 }
 
-func (p Model) refreshMessages() (tea.Model, tea.Cmd) {
+func (p Model) refreshMessages() (Model, tea.Cmd) {
 	wasAtBottom := p.viewport.AtBottom()
 	var contentMessages []ChatMessage
 	if p.agentChunks != "" {

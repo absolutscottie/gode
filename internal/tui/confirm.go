@@ -2,19 +2,21 @@ package tui
 
 import (
 	"strings"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
-type ConfirmationDialog struct {
+type DialogModel struct {
 	width       int
 	question    string
 	visible     bool
 	blendOffset int
 }
 
-func NewConfirmationDialog() *ConfirmationDialog {
-	return &ConfirmationDialog{
+func InitialDialogModel() DialogModel {
+	return DialogModel{
 		width:       0,
 		question:    "do you know what you're doing?",
 		visible:     false,
@@ -22,11 +24,65 @@ func NewConfirmationDialog() *ConfirmationDialog {
 	}
 }
 
-func (c *ConfirmationDialog) View() string {
+func tickEvery() tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+		return TickMsg(t)
+	})
+}
+
+// func (c DialogModel) Init() tea.Cmd {
+// 	return tickEvery()
+// }
+
+func (c DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		return c.handleKeyPress(msg)
+	case ConfirmationRequest:
+		return c.handleConfirmationRequest(msg)
+	case tea.WindowSizeMsg:
+		return c.handleWindowResize(msg)
+	case TickMsg:
+		return c.handleTick(msg)
+	}
+	return c, nil
+}
+
+func (c DialogModel) handleDecision(msg DecisionMessage) (DialogModel, tea.Cmd) {
+	c.visible = false
+	return c, nil
+}
+
+func (c DialogModel) handleKeyPress(msg tea.KeyPressMsg) (DialogModel, tea.Cmd) {
+	if !c.visible {
+		return c, nil
+	}
+
+	switch msg.String() {
+	case "1": //Yes
+		return c, func() tea.Msg { return DecisionMessage{Approved: true} }
+	case "2": //No
+		return c, func() tea.Msg { return DecisionMessage{Approved: false} }
+	}
+
+	return c, nil
+}
+
+func (c DialogModel) handleTick(_ TickMsg) (DialogModel, tea.Cmd) {
+	c.blendOffset++
+	return c, tickEvery()
+}
+
+func (c DialogModel) handleWindowResize(msg tea.WindowSizeMsg) (DialogModel, tea.Cmd) {
+	c.width = msg.Width
+	return c, nil
+}
+
+func (c DialogModel) View() string {
 	return c.getContent()
 }
 
-func (c *ConfirmationDialog) getContent() string {
+func (c DialogModel) getContent() string {
 	// Define your start and end colors
 	color1 := lipgloss.Color("#7D56F4")
 	color2 := lipgloss.Color("#FF416C")
@@ -42,36 +98,27 @@ func (c *ConfirmationDialog) getContent() string {
 	s := strings.Builder{}
 	s.WriteString(c.question)
 	s.WriteString("\n\n")
-	s.WriteString("1.\tYes\n")
-	s.WriteString("2.\tNo\n")
+	s.WriteString("\t1. Yes\n")
+	s.WriteString("\t2. No\n")
+
 	return style.Render(s.String())
 }
 
-func (c *ConfirmationDialog) Update() {
-	c.blendOffset++
-}
-
-func (c *ConfirmationDialog) SetWidth(width int) {
-	c.width = width
-}
-
-func (c *ConfirmationDialog) Width() int {
+func (c DialogModel) Width() int {
 	return c.width
 }
 
-func (c *ConfirmationDialog) SetQuestion(question string) {
-	c.question = question
+func (c DialogModel) handleConfirmationRequest(msg ConfirmationRequest) (DialogModel, tea.Cmd) {
+	c.question = msg.Question
+	c.visible = true
+	return c, nil
 }
 
-func (c *ConfirmationDialog) SetVisible(visibility bool) {
-	c.visible = visibility
-}
-
-func (c *ConfirmationDialog) Visible() bool {
+func (c DialogModel) Visible() bool {
 	return c.visible
 }
 
-func (c *ConfirmationDialog) GetHeight() int {
+func (c DialogModel) GetHeight() int {
 	if !c.visible {
 		return 0
 	}
