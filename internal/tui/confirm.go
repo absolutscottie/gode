@@ -30,10 +30,6 @@ func tickEvery() tea.Cmd {
 	})
 }
 
-// func (c DialogModel) Init() tea.Cmd {
-// 	return tickEvery()
-// }
-
 func (c DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:

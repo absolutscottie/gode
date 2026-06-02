@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -22,6 +23,8 @@ type Model struct {
 	height        int
 	userChan      chan any
 	blenoffset    int
+	spinner       spinner.Model
+	agentActive   bool
 
 	currentConfirmationRequest ConfirmationRequest
 }
@@ -45,6 +48,9 @@ func InitialModel(userChan chan any) tea.Model {
 	vp.KeyMap.Left.SetEnabled(false)
 	vp.KeyMap.Right.SetEnabled(false)
 
+	s := spinner.New()
+	s.Spinner = spinner.Points
+
 	p := Model{
 		textarea:      ta,
 		viewport:      vp,
@@ -52,13 +58,15 @@ func InitialModel(userChan chan any) tea.Model {
 		userChan:      userChan,
 		confirmDialog: InitialDialogModel(),
 		blenoffset:    0,
+		spinner:       s,
 	}
 
 	return p
 }
 
 func (p Model) Init() tea.Cmd {
-	return tickEvery()
+	p.spinner.Spinner = spinner.Dot
+	return tea.Batch(tickEvery(), p.spinner.Tick)
 }
 
 func (p Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -87,6 +95,15 @@ func (p Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TickMsg:
 		p, mCmd = p.handleTick(msg)
+
+	case spinner.TickMsg:
+		p, mCmd = p.handleSpinnerTick(msg)
+
+	case AgentStart:
+		p, mCmd = p.handleAgentStart(msg)
+
+	case AgentStop:
+		p, mCmd = p.handleAgentStop(msg)
 	}
 
 	p.confirmDialog, dCmd = p.confirmDialog.Update(msg)
@@ -98,9 +115,29 @@ func (p Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return p, tea.Batch(mCmd, dCmd)
 }
 
-func (p Model) handleTick(msg tea.Msg) (Model, tea.Cmd) {
+func (p Model) handleAgentStart(_ AgentStart) (Model, tea.Cmd) {
+	p.agentActive = true
+	return p.refreshMessages()
+}
+
+func (p Model) handleAgentStop(_ AgentStop) (Model, tea.Cmd) {
+	p.agentActive = false
+	return p.refreshMessages()
+}
+
+func (p Model) handleTick(_ tea.Msg) (Model, tea.Cmd) {
 	log.Logger.Debug().Msgf("received tick message")
 	return p, nil
+}
+
+func (p Model) handleSpinnerTick(msg tea.Msg) (Model, tea.Cmd) {
+	var cmd1, cmd2 tea.Cmd
+	p.spinner, cmd1 = p.spinner.Update(msg)
+
+	if p.agentActive {
+		p, cmd2 = p.refreshMessages()
+	}
+	return p, tea.Batch(cmd1, cmd2)
 }
 
 func (p Model) handleConfirmationRequest(msg ConfirmationRequest) (Model, tea.Cmd) {
@@ -190,20 +227,20 @@ func (p Model) handleUserInputConfirmation(msg DecisionMessage) (Model, tea.Cmd)
 func (p Model) refreshMessages() (Model, tea.Cmd) {
 	wasAtBottom := p.viewport.AtBottom()
 	var contentMessages []ChatMessage
-	if p.agentChunks != "" {
-		contentMessages = append(p.messages, NewChatMessage("Cosmo", p.agentChunks))
+	if p.agentActive {
+		contentMessages = append(p.messages, NewChatMessage("Cosmo", p.agentChunks+" "+p.spinner.View()))
 	} else {
 		contentMessages = p.messages
 	}
 
 	cosmoColor := lipgloss.Color("#9900ff")
-	youColor := lipgloss.Color("#34ccde")
+	youColor := lipgloss.Color("#FF69B4")
 
 	cosmoBorderStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, false, true).BorderForeground(cosmoColor)
+		Border(lipgloss.ThickBorder(), false, false, false, true).BorderForeground(cosmoColor)
 
 	youBorderStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, false, true).BorderForeground(youColor)
+		Border(lipgloss.ThickBorder(), false, false, false, true).BorderForeground(youColor)
 
 	//senderStyle := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder())
 	renderer, _ := glamour.NewTermRenderer(glamour.WithWordWrap(p.width-1), glamour.WithStandardStyle("dracula"))
