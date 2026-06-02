@@ -106,7 +106,7 @@ func main() {
 		StopFn:        func() { sendAgentStop(ui) },
 	}
 
-	go userLoop(session, userChan)
+	go userLoop(session, userChan, ui)
 
 	if _, err := ui.Run(); err != nil {
 		log.Error().Msgf("Error starting program: %s", err)
@@ -145,7 +145,7 @@ func readAllFiles(root string) ([]string, error) {
 	return files, err
 }
 
-func userLoop(session *llamacpp.Session, userChan chan any) {
+func userLoop(session *llamacpp.Session, userChan chan any, ui *tea.Program) {
 	var cancel context.CancelFunc
 
 	for msg := range userChan {
@@ -176,6 +176,10 @@ func userLoop(session *llamacpp.Session, userChan chan any) {
 					Name:       msg.Function.Name,
 				},
 			)
+		case tui.StopGeneration:
+			logger.Info().Msg("user requested stop generation")
+			ui.Send(tui.GenerationStopped{})
+			continue
 		}
 
 		currentCtx, cancel := context.WithCancel(context.Background())

@@ -44,3 +44,7 @@ type TokenUsageMessage struct {
 	PromptCachedTokens        int
 	CompletionReasoningTokens int
 }
+
+type StopGeneration struct{}
+
+type GenerationStopped struct{}

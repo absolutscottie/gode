@@ -104,6 +104,9 @@ func (p Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AgentStop:
 		p, mCmd = p.handleAgentStop(msg)
+
+	case GenerationStopped:
+		p, mCmd = p.handleGenerationStopped(msg)
 	}
 
 	p.confirmDialog, dCmd = p.confirmDialog.Update(msg)
@@ -196,8 +199,15 @@ func (p Model) handleUserInput(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		p.viewport.ScrollDown(5)
 	case "enter":
 		text := p.textarea.Value()
-		p.messages = append(p.messages, NewChatMessage("You", text))
 		p.textarea.Reset()
+
+		if strings.TrimSpace(text) == "/stop" {
+			p.messages = append(p.messages, NewChatMessage("You", text))
+			p.userChan <- StopGeneration{}
+			return p.refreshMessages()
+		}
+
+		p.messages = append(p.messages, NewChatMessage("You", text))
 		p.userChan <- text
 
 		return p.refreshMessages()
@@ -222,6 +232,12 @@ func (p Model) handleUserInputConfirmation(msg DecisionMessage) (Model, tea.Cmd)
 	}
 
 	return p, tea.Batch(cmd, dCmd)
+}
+
+func (p Model) handleGenerationStopped(_ GenerationStopped) (Model, tea.Cmd) {
+	p.agentActive = false
+	p.messages = append(p.messages, NewChatMessage("System", "Generation stopped."))
+	return p.refreshMessages()
 }
 
 func (p Model) refreshMessages() (Model, tea.Cmd) {
