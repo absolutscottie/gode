@@ -246,6 +246,19 @@ func handleToolCall(logger zerolog.Logger, t *agent.ToolCall) (string, error) {
 			return "", fmt.Errorf("file info error: %s", result.Error)
 		}
 		return result.String()
+	case "shell_exec":
+		var args filesystem.ShellExecArgs
+		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
+		if err != nil {
+			logger.Error().Msgf("failed to parse arguments: %s", err)
+			return "", fmt.Errorf("failed to parse arguments: %s", err)
+		}
+		result := filesystem.ShellExec(args)
+		if !result.Success {
+			logger.Error().Msgf("shell exec error: %s", result.Error)
+			return "", fmt.Errorf("shell exec error: %s", result.Error)
+		}
+		return result.String()
 	default:
 		return "", fmt.Errorf("tool not found: %s", t.Function.Name)
 	}
@@ -291,6 +304,16 @@ func buildToolConfirmationPrompt(logger zerolog.Logger, t *agent.ToolCall) (stri
 		}
 
 		return fmt.Sprintf("Do you want to allow Cosmo to **get info** on `%s`?", args.Path), nil
+
+	case "shell_exec":
+		var args filesystem.ShellExecArgs
+		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
+		if err != nil {
+			logger.Error().Msgf("failed to parse arguments: %s", err)
+			return "", err
+		}
+
+		return fmt.Sprintf("Do you want to allow Cosmo to **execute the command** `%s`?", args.Command), nil
 	}
 
 	return "How much wood could a wood chuck chuck if a wood chuck could chuck wood?", fmt.Errorf("unknown tool request: " + t.Function.Name)
