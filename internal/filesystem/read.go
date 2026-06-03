@@ -14,7 +14,7 @@ var FileReadTool = agent.ToolDescription{
 	Type: "function",
 	Function: agent.Function{
 		Name:        "file_read",
-		Description: "Reads the entire content of a file from the file system safely. Restricted to text files. Supports optional line offsets for efficient context usage.",
+		Description: "Reads the content of a file from the file system safely. Restricted to text files. Supports optional line offsets for efficient context usage. Callers should use the file_info tool before calling this tool to determine if it makes sense to use offsets. Files < 1 kilobyte should be read without offsets.",
 		Params: agent.FunctionParam{
 			Type: "object",
 			Properties: map[string]agent.FunctionParamProperty{

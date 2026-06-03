@@ -5,6 +5,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/glamour/v2"
 	"charm.land/lipgloss/v2"
 )
 
@@ -91,8 +92,12 @@ func (c DialogModel) getContent() string {
 		BorderForegroundBlend(color1, color2).
 		BorderForegroundBlendOffset(c.blendOffset)
 
+	// Render the question as markdown using glamour
+	renderer, _ := glamour.NewTermRenderer(glamour.WithWordWrap(c.width-1), glamour.WithStandardStyle("dark"))
+	rendered, _ := renderer.Render(c.question)
+
 	s := strings.Builder{}
-	s.WriteString(c.question)
+	s.WriteString(rendered)
 	s.WriteString("\n\n")
 	s.WriteString("\t1. Yes\n")
 	s.WriteString("\t2. No\n")

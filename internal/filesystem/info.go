@@ -1,6 +1,7 @@
 package filesystem
 
 import (
+	"encoding/json"
 	"gode/internal/agent"
 	"os"
 	"path/filepath"
@@ -36,6 +37,15 @@ type FileInfoResult struct {
 	Error     string `json:"error,omitempty"`
 	SizeBytes int64  `json:"size_bytes"`
 	LineCount int    `json:"line_count"`
+}
+
+func (r FileInfoResult) String() (string, error) {
+	encoded, err := json.Marshal(r)
+	if err != nil {
+		return "", err
+	}
+
+	return string(encoded), nil
 }
 
 func FileInfo(args FileInfoArgs) FileInfoResult {
