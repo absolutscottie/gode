@@ -35,11 +35,6 @@ type App struct {
 	currentCancelFunc context.CancelFunc
 }
 
-
-var allTools = map[string]ToolWrapper[T any, R any]{
-	"file_read": filesystem.FileReadTool,	
-}
-
 // New creates a new App with the given configuration.
 func New(host, modelName string, fileList []string, logger zerolog.Logger) *App {
 	llm := llamacpp.NewProvider(host, modelName)
@@ -68,7 +63,7 @@ func (a *App) Run() (tea.Model, error) {
 		ToolDescriptions: []agent.ToolDescription{
 			filesystem.FileReadTool,
 			filesystem.FileWriteTool,
-			filesystem.FileEditTool,
+			filesystem.FileEditToolDescription,
 			//filesystem.FileInfoTool,
 		},
 		ChunkFn:       func(s string) { a.sendChunk(s) },

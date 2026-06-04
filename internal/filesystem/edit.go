@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"gode/internal/agent"
-	"gode/internal/filesystem"
 	"os"
 	"path/filepath"
 )
@@ -117,13 +116,13 @@ type FileEditTool struct {
 	enabled bool
 }
 
-func (tool *FileEditTool) Execute(call agent.ToolCall) (string, error) {
-	var args filesystem.FileReadArgs
-	err := json.Unmarshal([]byte(call.Function.Arguments), &args)
+func (tool *FileEditTool) Execute(call string) (string, error) {
+	var args FileReadArgs
+	err := json.Unmarshal([]byte(call), &args)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %s", err)
 	}
-	result := filesystem.FileRead(args)
+	result := FileRead(args)
 	if !result.Success {
 		return "", fmt.Errorf("file read error: %s", result.Error)
 	}
