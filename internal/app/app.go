@@ -25,12 +25,19 @@ const (
 
 // App orchestrates the LLM session and the TUI.
 type App struct {
-	llm      llamacpp.LlamacppProvider
-	session  *llamacpp.Session
-	userChan chan any
-	ui       *tea.Program
-	logger   zerolog.Logger
-	fileList []string
+	llm               llamacpp.LlamacppProvider
+	session           *llamacpp.Session
+	userChan          chan any
+	cancelChan        chan any
+	ui                *tea.Program
+	logger            zerolog.Logger
+	fileList          []string
+	currentCancelFunc context.CancelFunc
+}
+
+
+var allTools = map[string]ToolWrapper[T any, R any]{
+	"file_read": filesystem.FileReadTool,	
 }
 
 // New creates a new App with the given configuration.
@@ -38,16 +45,17 @@ func New(host, modelName string, fileList []string, logger zerolog.Logger) *App 
 	llm := llamacpp.NewProvider(host, modelName)
 
 	return &App{
-		llm:      llm,
-		userChan: make(chan any),
-		logger:   logger,
-		fileList: fileList,
+		llm:        llm,
+		userChan:   make(chan any, 2),
+		cancelChan: make(chan any),
+		logger:     logger,
+		fileList:   fileList,
 	}
 }
 
 // Run starts the TUI and begins processing user input.
 func (a *App) Run() (tea.Model, error) {
-	a.ui = tea.NewProgram(tui.InitialModel(a.userChan))
+	a.ui = tea.NewProgram(tui.InitialModel(a.userChan, a.cancelChan))
 
 	// Wire up session callbacks now that we have the TUI program.
 	a.session = &llamacpp.Session{
@@ -61,7 +69,7 @@ func (a *App) Run() (tea.Model, error) {
 			filesystem.FileReadTool,
 			filesystem.FileWriteTool,
 			filesystem.FileEditTool,
-			filesystem.FileInfoTool,
+			//filesystem.FileInfoTool,
 		},
 		ChunkFn:       func(s string) { a.sendChunk(s) },
 		FullMessageFn: func(s string) { a.sendFullMessage(s) },
@@ -71,90 +79,115 @@ func (a *App) Run() (tea.Model, error) {
 	}
 
 	go a.userLoop()
+	go a.cancelLoop()
 	return a.ui.Run()
 }
 
-func (a *App) userLoop() {
-	var cancel context.CancelFunc
-
-	for msg := range a.userChan {
-		// Cancel the previous goroutine's context if it exists
-		if cancel != nil {
-			cancel()
+func (a *App) cancelLoop() {
+	for range a.cancelChan {
+		if a.currentCancelFunc != nil {
+			a.currentCancelFunc()
 		}
+	}
+}
 
+func (a *App) userLoop() {
+	for msg := range a.userChan {
 		switch msg := msg.(type) {
 		case string:
 			a.session.StoreMessages(agent.Message{
 				Role:    UserRole,
 				Content: msg,
 			})
-		case *agent.ToolCall:
+		}
+
+		var cancelCtx context.Context
+		cancelCtx, a.currentCancelFunc = context.WithCancel(context.Background())
+
+		a.session.StartFn()
+		output, toolCall, err := a.llm.ChatStreamWithContext(cancelCtx, a.session)
+		if err != nil {
+			if cancelCtx.Err() != nil {
+				a.logger.Info().Msgf("llm request cancelled: %s", err)
+			} else {
+				// edit history
+				if len(a.session.Messages) >= 2 && a.session.Messages[len(a.session.Messages)-1].Role == ToolRole && a.session.Messages[len(a.session.Messages)-2].Role == AgentRole {
+					am := a.session.Messages[len(a.session.Messages)-1]
+					am.ToolCalls[0].Function.Arguments = "error parsing tool arguments"
+				}
+
+				a.userChan <- 0
+				continue
+			}
+
+			a.logger.Error().Msgf("llm error: %s", err)
+		}
+		a.session.StopFn()
+
+		if output != "" {
+			a.session.FullMessageFn(output)
+			a.session.StoreMessages(agent.Message{
+				Role:    AgentRole,
+				Content: output,
+			})
+		}
+
+		if toolCall != nil {
 			a.session.StoreMessages(
 				agent.Message{
 					Role:    AgentRole,
 					Content: "",
 					ToolCalls: []agent.ToolCall{
-						*msg,
+						*toolCall,
 					},
 				},
-				agent.Message{
-					Role:       ToolRole,
-					Content:    msg.Result,
-					ToolCallId: msg.ID,
-					Name:       msg.Function.Name,
-				},
 			)
-		case tui.StopGeneration:
-			a.logger.Info().Msg("user requested stop generation")
-			a.ui.Send(tui.GenerationStopped{})
-			continue
-		}
 
-		currentCtx, cancel := context.WithCancel(context.Background())
-
-		go func(ctx context.Context, cancel context.CancelFunc, userMsg any) {
-			a.session.StartFn()
-			output, toolCall, err := a.llm.ChatStreamWithContext(ctx, a.session)
+			prompt, err := buildToolConfirmationPrompt(a.logger, toolCall)
 			if err != nil {
-				if ctx.Err() != nil {
-					a.logger.Info().Msgf("llm request cancelled: %s", err)
-				} else {
-					a.logger.Error().Msgf("llm error: %s", err)
-				}
-			}
-			a.session.StopFn()
-
-			if output != "" {
-				a.session.FullMessageFn(output)
-				a.session.StoreMessages(agent.Message{
-					Role:    AgentRole,
-					Content: output,
-				})
-				return
-			}
-
-			if toolCall != nil {
-				prompt, err := buildToolConfirmationPrompt(a.logger, toolCall)
+				a.session.StoreMessages(
+					agent.Message{
+						Role:       ToolRole,
+						Content:    err.Error(),
+						ToolCallId: toolCall.ID,
+						Name:       toolCall.Function.Name,
+					},
+				)
+			} else if answer := a.session.ConfirmFn(prompt); !answer {
+				a.session.StoreMessages(
+					agent.Message{
+						Role:       ToolRole,
+						Content:    fmt.Errorf("user denied tool request").Error(),
+						ToolCallId: toolCall.ID,
+						Name:       toolCall.Function.Name,
+					},
+				)
+			} else {
+				result, err := handleToolCall(a.logger, toolCall)
 				if err != nil {
-					toolCall.Result = err.Error()
-				}
-				answer := a.session.ConfirmFn(prompt)
-				if !answer {
-					toolCall.Result = fmt.Errorf("user denied tool request").Error()
+					a.session.StoreMessages(
+						agent.Message{
+							Role:       ToolRole,
+							Content:    err.Error(),
+							ToolCallId: toolCall.ID,
+							Name:       toolCall.Function.Name,
+						},
+					)
 				} else {
-					result, err := handleToolCall(a.logger, toolCall)
-					if err != nil {
-						toolCall.Result = err.Error()
-					} else {
-						toolCall.Result = result
-					}
+					a.session.StoreMessages(
+						agent.Message{
+							Role:       ToolRole,
+							Content:    result,
+							ToolCallId: toolCall.ID,
+							Name:       toolCall.Function.Name,
+						},
+					)
 				}
 
 				a.userChan <- toolCall
 			}
-
-		}(currentCtx, cancel, msg)
+		}
+		a.currentCancelFunc = nil
 	}
 }
 
@@ -316,5 +349,5 @@ func buildToolConfirmationPrompt(logger zerolog.Logger, t *agent.ToolCall) (stri
 		return fmt.Sprintf("Do you want to allow Cosmo to **execute the command** `%s`?", args.Command), nil
 	}
 
-	return "How much wood could a wood chuck chuck if a wood chuck could chuck wood?", fmt.Errorf("unknown tool request: " + t.Function.Name)
+	return "How much wood could a wood chuck chuck if a wood chuck could chuck wood?", fmt.Errorf("unknown tool request: %s" + t.Function.Name)
 }

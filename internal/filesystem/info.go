@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"encoding/json"
+	"fmt"
 	"gode/internal/agent"
 	"os"
 	"path/filepath"
@@ -59,6 +60,10 @@ func FileInfo(args FileInfoArgs) FileInfoResult {
 	info, err := os.Stat(absPath)
 	if err != nil {
 		return FileInfoResult{Success: false, Error: err.Error()}
+	}
+
+	if info.IsDir() {
+		return FileInfoResult{Success: false, Error: fmt.Errorf("read error: the provided path is not a file, it is a directory").Error()}
 	}
 
 	// Count lines

@@ -22,6 +22,7 @@ type Model struct {
 	width         int
 	height        int
 	userChan      chan any
+	cancelChan    chan any
 	blenoffset    int
 	spinner       spinner.Model
 	agentActive   bool
@@ -29,7 +30,7 @@ type Model struct {
 	currentConfirmationRequest ConfirmationRequest
 }
 
-func InitialModel(userChan chan any) tea.Model {
+func InitialModel(userChan chan any, cancelChan chan any) tea.Model {
 	ta := textarea.New()
 	ta.Placeholder = "Type a message and press Enter..."
 	ta.SetVirtualCursor(false)
@@ -203,7 +204,7 @@ func (p Model) handleUserInput(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 		if strings.TrimSpace(text) == "/stop" {
 			p.messages = append(p.messages, NewChatMessage("You", text))
-			p.userChan <- StopGeneration{}
+			p.cancelChan <- StopGeneration{}
 			return p.refreshMessages()
 		}
 
@@ -258,8 +259,10 @@ func (p Model) refreshMessages() (Model, tea.Cmd) {
 	youBorderStyle := lipgloss.NewStyle().
 		Border(lipgloss.ThickBorder(), false, false, false, true).BorderForeground(youColor)
 
-	//senderStyle := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder())
-	renderer, _ := glamour.NewTermRenderer(glamour.WithWordWrap(p.width-1), glamour.WithStandardStyle("dracula"))
+	renderer, _ := glamour.NewTermRenderer(
+		glamour.WithWordWrap(p.width-1),
+		glamour.WithStandardStyle("dracula"),
+	)
 
 	var content []string
 	for _, msg := range contentMessages {

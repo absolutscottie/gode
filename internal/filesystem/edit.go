@@ -1,17 +1,19 @@
 package filesystem
 
 import (
+	"encoding/json"
+	"fmt"
 	"gode/internal/agent"
+	"gode/internal/filesystem"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
-var FileEditTool = agent.ToolDescription{
+var FileEditToolDescription = agent.ToolDescription{
 	Type: "function",
 	Function: agent.Function{
 		Name:        "file_edit",
-		Description: "Edits a file by replacing specific lines. This is safer and more efficient than file_write for modifications.",
+		Description: "Edits a file by replacing specific byte ranges. This is safer and more efficient than file_write for modifications.",
 		Params: agent.FunctionParam{
 			Type: "object",
 			Properties: map[string]agent.FunctionParamProperty{
@@ -21,27 +23,27 @@ var FileEditTool = agent.ToolDescription{
 				},
 				"edits": {
 					Type:        "array",
-					Description: "A list of edits to apply to the file. Each edit specifies a range of lines to replace.",
+					Description: "A list of edits to apply to the file. Each edit specifies a byte range to replace.",
 					Items: &agent.FunctionParamProperty{
 						Type: "object",
 						Properties: map[string]agent.FunctionParamProperty{
-							"start_line": {
+							"start_offset": {
 								Type:        "integer",
-								Description: "The 1-indexed line number where the edit starts (inclusive).",
+								Description: "The 0-indexed byte offset where the edit starts.",
 							},
-							"end_line": {
+							"end_offset": {
 								Type:        "integer",
-								Description: "The 1-indexed line number where the edit ends (inclusive).",
+								Description: "The 0-indexed byte offset where the edit ends (exclusive).",
 							},
 							"new_text": {
 								Type:        "string",
-								Description: "The text to replace the specified line range with.",
+								Description: "The text to replace the specified byte range with.",
 							},
 						},
 					},
 					Required: []string{
-						"start_line",
-						"end_line",
+						"start_offset",
+						"end_offset",
 						"new_text",
 					},
 					AdditionalProperties: false,
@@ -61,9 +63,9 @@ type FileEditArgs struct {
 }
 
 type Edit struct {
-	StartLine int    `json:"start_line"`
-	EndLine   int    `json:"end_line"`
-	NewText   string `json:"new_text"`
+	StartOffset int    `json:"start_offset"`
+	EndOffset   int    `json:"end_offset"`
+	NewText     string `json:"new_text"`
 }
 
 type FileEditResult struct {
@@ -78,48 +80,68 @@ func FileEdit(args FileEditArgs) FileEditResult {
 		return FileEditResult{Success: false, Error: err.Error()}
 	}
 
-	// Read the file
+	// Read the file content as bytes
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return FileEditResult{Success: false, Error: err.Error()}
 	}
 
-	lines := strings.Split(string(content), "\n")
-
-	// Apply edits in reverse order to avoid shifting line numbers
+	// Apply edits in reverse order to preserve byte offsets
 	for i := len(args.Edits) - 1; i >= 0; i-- {
 		edit := args.Edits[i]
 
-		// Validate line numbers
-		if edit.StartLine < 1 || edit.EndLine < 1 || edit.StartLine > edit.EndLine {
-			return FileEditResult{Success: false, Error: "Invalid line numbers in edit"}
+		// Validate byte offsets: start must be >= 0, end must be > start (zero-length range allowed for insertion)
+		if edit.StartOffset < 0 || edit.EndOffset < edit.StartOffset {
+			return FileEditResult{Success: false, Error: "Invalid byte offsets in edit"}
 		}
 
-		if edit.StartLine > len(lines) || edit.EndLine > len(lines) {
-			return FileEditResult{Success: false, Error: "Line numbers exceed file length"}
+		if edit.EndOffset > len(content) {
+			return FileEditResult{Success: false, Error: "End offset exceeds file length"}
 		}
 
-		// Convert 1-indexed to 0-indexed
-		startIdx := edit.StartLine - 1
-		endIdx := edit.EndLine - 1
-
-		// Replace the range
-		newLines := append(lines[:startIdx], strings.Split(edit.NewText, "\n")...)
-		if endIdx+1 < len(lines) {
-			newLines = append(newLines, lines[endIdx+1:]...)
-		}
-
-		lines = newLines
+		// Replace the byte range: [startOffset, endOffset)
+		newContent := append(content[:edit.StartOffset], append([]byte(edit.NewText), content[edit.EndOffset:]...)...)
+		content = newContent
 	}
 
-	// Join lines back
-	newContent := strings.Join(lines, "\n")
-
-	// Write the file
-	err = os.WriteFile(absPath, []byte(newContent), 0644)
+	// Write the modified content back
+	err = os.WriteFile(absPath, content, 0644)
 	if err != nil {
 		return FileEditResult{Success: false, Error: err.Error()}
 	}
 
 	return FileEditResult{Success: true}
+}
+
+type FileEditTool struct {
+	enabled bool
+}
+
+func (tool *FileEditTool) Execute(call agent.ToolCall) (string, error) {
+	var args filesystem.FileReadArgs
+	err := json.Unmarshal([]byte(call.Function.Arguments), &args)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %s", err)
+	}
+	result := filesystem.FileRead(args)
+	if !result.Success {
+		return "", fmt.Errorf("file read error: %s", result.Error)
+	}
+	return result.Content, nil
+}
+
+func (t *FileEditTool) GetName() string {
+	return FileEditToolDescription.Function.Name
+}
+
+func (t *FileEditTool) Enabled() bool {
+	return t.enabled
+}
+
+func (t *FileEditTool) SetEnabled(enabled bool) {
+	t.enabled = enabled
+}
+
+func (t *FileEditTool) GetDescription() agent.ToolDescription {
+	return FileEditToolDescription
 }
