@@ -117,16 +117,16 @@ type FileEditTool struct {
 }
 
 func (tool *FileEditTool) Execute(call string) (string, error) {
-	var args FileReadArgs
+	var args FileEditArgs
 	err := json.Unmarshal([]byte(call), &args)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %s", err)
 	}
-	result := FileRead(args)
+	result := FileEdit(args)
 	if !result.Success {
 		return "", fmt.Errorf("file read error: %s", result.Error)
 	}
-	return result.Content, nil
+	return "", nil
 }
 
 func (t *FileEditTool) GetName() string {
