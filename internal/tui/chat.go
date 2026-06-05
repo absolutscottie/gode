@@ -130,7 +130,7 @@ func (p Model) handleAgentStop(_ AgentStop) (Model, tea.Cmd) {
 }
 
 func (p Model) handleTick(_ tea.Msg) (Model, tea.Cmd) {
-	log.Logger.Debug().Msgf("received tick message")
+	//log.Logger.Debug().Msgf("received tick message")
 	return p, nil
 }
 

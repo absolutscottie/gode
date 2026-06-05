@@ -13,7 +13,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/rs/zerolog"
+	log "github.com/rs/zerolog"
 )
 
 const (
@@ -37,13 +37,13 @@ type App struct {
 	userChan          chan any
 	cancelChan        chan any
 	ui                *tea.Program
-	logger            zerolog.Logger
+	logger            log.Logger
 	fileList          []string
 	currentCancelFunc context.CancelFunc
 }
 
 // New creates a new App with the given configuration.
-func New(host, modelName string, fileList []string, logger zerolog.Logger) *App {
+func New(host, modelName string, fileList []string, logger log.Logger) *App {
 	llm := llamacpp.NewProvider(host, modelName)
 
 	return &App{
@@ -155,19 +155,20 @@ func (a *App) userLoop() {
 		}
 
 		if toolCall != nil {
-			a.session.StoreMessages(
-				agent.Message{
-					Role:    AgentRole,
-					Content: "",
-					ToolCalls: []agent.ToolCall{
-						*toolCall,
-					},
-				},
-			)
+			a.logger.Debug().Msgf("storing tool call: with name: %s and arguments %s", toolCall.Function.Name, toolCall.Function.Arguments)
 
 			result, err := a.handleToolCall(toolCall)
 			if err != nil {
+				a.logger.Debug().Msgf("handled tool call yielding result: %s", err.Error())
+				toolCall.Function.Arguments = "{\"invalid\":true}"
 				a.session.StoreMessages(
+					agent.Message{
+						Role:    AgentRole,
+						Content: "",
+						ToolCalls: []agent.ToolCall{
+							*toolCall,
+						},
+					},
 					agent.Message{
 						Role:       ToolRole,
 						Content:    err.Error(),
@@ -178,6 +179,7 @@ func (a *App) userLoop() {
 				continue
 			}
 
+			a.logger.Debug().Msgf("handled tool call yielding result: %s", result)
 			a.session.StoreMessages(
 				agent.Message{
 					Role:       ToolRole,
