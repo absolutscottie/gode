@@ -27,6 +27,7 @@ const (
 var toolRegistry = map[string]filesystem.Tool{
 	"file_read":  &filesystem.FileReadTool{},
 	"file_write": &filesystem.FileWriteTool{},
+	"shell_exec": &filesystem.ShellExecTool{},
 }
 
 // App orchestrates the LLM session and the TUI.
@@ -69,6 +70,7 @@ func (a *App) Run() (tea.Model, error) {
 		ToolDescriptions: []agent.ToolDescription{
 			filesystem.FileWriteToolDescription,
 			filesystem.FileReadToolDescription,
+			filesystem.ShellExecToolDescription,
 		},
 		ChunkFn:       func(s string) { a.sendChunk(s) },
 		FullMessageFn: func(s string) { a.sendFullMessage(s) },

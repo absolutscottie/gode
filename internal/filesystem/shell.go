@@ -100,6 +100,16 @@ type ShellExecTool struct {
 	enabled bool
 }
 
+func (tool *ShellExecTool) Prompt(call string) (string, error) {
+	var args ShellExecArgs
+	err := json.Unmarshal([]byte(call), &args)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("Do you want to allow Cosmo to **exec** the command `%s`?", args.Command), nil
+}
+
 func (tool *ShellExecTool) Execute(call string) (string, error) {
 	var args ShellExecArgs
 	err := json.Unmarshal([]byte(call), &args)
