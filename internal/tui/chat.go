@@ -36,7 +36,7 @@ func InitialModel(userChan chan any, cancelChan chan any) tea.Model {
 	ta.SetVirtualCursor(false)
 	ta.Focus()
 
-	ta.Prompt = "┃ "
+	ta.Prompt = " "
 	ta.CharLimit = 4096
 
 	ta.SetWidth(30)
@@ -213,7 +213,7 @@ func (p Model) handleUserInput(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 
 		return p.refreshMessages()
 	default:
-		// All other keypresses — pass through to the textarea
+		// All other keypresses  pass through to the textarea
 		p.textarea, cmd = p.textarea.Update(msg)
 	}
 

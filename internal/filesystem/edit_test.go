@@ -145,13 +145,13 @@ func TestFileEdit_SuccessAppendByReplacingEnd(t *testing.T) {
 func TestFileEdit_SuccessUTF8MultiByte(t *testing.T) {
 	dir := t.TempDir()
 	filePath := filepath.Join(dir, "test.txt")
-	// "héllo" — 'é' is 2 bytes in UTF-8
-	err := os.WriteFile(filePath, []byte("héllo\n"), 0644)
+	// "hllo"  '' is 2 bytes in UTF-8
+	err := os.WriteFile(filePath, []byte("hllo\n"), 0644)
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
 
-	// Replace bytes 1-3 (the 'é' character) with 'e'
+	// Replace bytes 1-3 (the '' character) with 'e'
 	result := FileEdit(FileEditArgs{
 		Path: filePath,
 		Edits: []Edit{

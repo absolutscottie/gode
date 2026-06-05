@@ -111,6 +111,14 @@ func FileRead(args FileReadArgs) FileReadResult {
 
 type FileReadTool struct {
 	enabled bool
+	policy  *Policy
+}
+
+func NewFileReadTool(policy *Policy) *FileReadTool {
+	return &FileReadTool{
+		enabled: true,
+		policy:  policy,
+	}
 }
 
 func (tool *FileReadTool) Prompt(call string) (string, error) {
@@ -129,6 +137,12 @@ func (tool *FileReadTool) Execute(call string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %s", err)
 	}
+
+	// Pre-approval validation  hard block before showing to user
+	if err := tool.policy.ValidatePath(args.Path); err != nil {
+		return "", fmt.Errorf("path rejected: %w", err)
+	}
+
 	result := FileRead(args)
 	if !result.Success {
 		return "", fmt.Errorf("file read error: %s", result.Error)

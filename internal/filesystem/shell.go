@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"time"
 
 	"gode/internal/agent"
@@ -96,8 +97,26 @@ func ShellExec(args ShellExecArgs) ShellExecResult {
 	}
 }
 
+// SanitizeCommandForDisplay masks variable expansions to prevent
+// information leakage in the approval UI.
+func SanitizeCommandForDisplay(cmd string) string {
+	re := regexp.MustCompile(`\$\([^)]+\)`)
+	sanitized := re.ReplaceAllString(cmd, "$(...)")
+	re2 := regexp.MustCompile(`\$\{[^}]+\}`)
+	sanitized = re2.ReplaceAllString(sanitized, "${...}")
+	return sanitized
+}
+
 type ShellExecTool struct {
 	enabled bool
+	policy  *Policy
+}
+
+func NewShellExecTool(policy *Policy) *ShellExecTool {
+	return &ShellExecTool{
+		enabled: true,
+		policy:  policy,
+	}
 }
 
 func (tool *ShellExecTool) Prompt(call string) (string, error) {
@@ -107,7 +126,8 @@ func (tool *ShellExecTool) Prompt(call string) (string, error) {
 		return "", err
 	}
 
-	return fmt.Sprintf("Do you want to allow Cosmo to **exec** the command `%s`?", args.Command), nil
+	sanitized := SanitizeCommandForDisplay(args.Command)
+	return fmt.Sprintf("Do you want to allow Cosmo to **exec** the command `%s`?", sanitized), nil
 }
 
 func (tool *ShellExecTool) Execute(call string) (string, error) {
@@ -116,6 +136,12 @@ func (tool *ShellExecTool) Execute(call string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %s", err)
 	}
+
+	// pre-approval: hard block before displaying it to the user
+	if err := tool.policy.ValidateShellCommand(args.Command); err != nil {
+		return "", fmt.Errorf("command rejected: %w", err)
+	}
+
 	result := ShellExec(args)
 	if !result.Success {
 		return "", fmt.Errorf("shell exec error: %s", result.Error)

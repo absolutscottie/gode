@@ -24,11 +24,7 @@ const (
 )
 
 // toolRegistry maps tool names to their implementations.
-var toolRegistry = map[string]filesystem.Tool{
-	"file_read":  &filesystem.FileReadTool{},
-	"file_write": &filesystem.FileWriteTool{},
-	"shell_exec": &filesystem.ShellExecTool{},
-}
+var toolRegistry = map[string]filesystem.Tool{}
 
 // App orchestrates the LLM session and the TUI.
 type App struct {
@@ -45,6 +41,19 @@ type App struct {
 // New creates a new App with the given configuration.
 func New(host, modelName string, fileList []string, logger log.Logger) *App {
 	llm := llamacpp.NewProvider(host, modelName)
+
+	// Load security policy
+	policy, err := filesystem.InitPolicy("config/shell_policy.toml")
+	if err != nil {
+		logger.Fatal().Err(err).Msg("failed to load security policy")
+	}
+
+	// Initialize tools with policy
+	toolRegistry = map[string]filesystem.Tool{
+		"file_read":  filesystem.NewFileReadTool(policy),
+		"file_write": filesystem.NewFileWriteTool(policy),
+		"shell_exec": filesystem.NewShellExecTool(policy),
+	}
 
 	return &App{
 		llm:        llm,

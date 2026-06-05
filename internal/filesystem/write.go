@@ -67,6 +67,14 @@ func FileWrite(args FileWriteArgs) FileWriteResult {
 
 type FileWriteTool struct {
 	enabled bool
+	policy  *Policy
+}
+
+func NewFileWriteTool(policy *Policy) *FileWriteTool {
+	return &FileWriteTool{
+		enabled: true,
+		policy:  policy,
+	}
 }
 
 func (tool *FileWriteTool) Prompt(call string) (string, error) {
@@ -85,6 +93,11 @@ func (tool *FileWriteTool) Execute(call string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %s", err)
 	}
+
+	if err := tool.policy.ValidatePath(args.Path); err != nil {
+		return "", fmt.Errorf("path rejected %w", err)
+	}
+
 	result := FileWrite(args)
 	if !result.Success {
 		return "", fmt.Errorf("file write error: %s", result.Error)

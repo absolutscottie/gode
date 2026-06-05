@@ -1,0 +1,117 @@
+# config/shell_policy.toml
+
+[shell]
+# Whitelisted command names (no arguments, no regex)
+# These are the only commands allowed to execute
+allowed_commands = [
+    "head",
+    "tail",
+    "cat",
+    "ls",
+    "grep",
+    "find",
+    "mkdir",
+    "make",
+    "cd",
+    "cp",
+    "mv",
+    "sort",
+    "uniq",
+    "go",
+]
+
+# Directories that are always blocked for shell commands
+blocked_paths = [
+    "/etc",
+    "/root",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/opt",
+    "/boot",
+    "/dev",
+    "/proc",
+    "/sys",
+    "/var",
+]
+
+# Additional blocked patterns (regex) for complex dangerous combinations
+# that can't be expressed as simple command/path checks
+[[shell.blocked_patterns]]
+pattern = "(?i)\\brm\\s+-rf?\\b"
+description = "Prevent recursive forceful deletion"
+
+[[shell.blocked_patterns]]
+pattern = "(?i)\\bchmod\\s+-R\\s+0?\\b"
+description = "Prevent mass permission changes"
+
+[[shell.blocked_patterns]]
+pattern = "(?i)\\bchown\\s+-R\\s+root\\b"
+description = "Prevent mass ownership changes"
+
+[[shell.blocked_patterns]]
+pattern = "(?i)\\bmkfs\\b"
+description = "Prevent filesystem creation"
+
+[[shell.blocked_patterns]]
+pattern = "(?i)\\bdd\\s+if=/dev/"
+description = "Prevent disk overwrites"
+
+[[shell.blocked_patterns]]
+pattern = "(?i)\\bcurl\\b.*\\b\\$\\("
+description = "Prevent command injection in curl"
+
+[[shell.blocked_patterns]]
+pattern = "(?i)\\bwget\\b.*\\b\\$\\("
+description = "Prevent command injection in wget"
+
+[[shell.blocked_patterns]]
+pattern = "(?i)\\bnc\\b.*-e\\b"
+description = "Prevent reverse shells via netcat"
+
+[[shell.blocked_patterns]]
+pattern = "(?i)\\bnetcat\\b.*-e\\b"
+description = "Prevent reverse shells via netcat"
+
+[[shell.blocked_patterns]]
+pattern = "(?i)\\bncat\\b.*-e\\b"
+description = "Prevent reverse shells via ncat"
+
+[[shell.blocked_patterns]]
+pattern = "(?i)\\bexec\\s+-\\b"
+description = "Prevent exec shell escape"
+
+[[shell.blocked_patterns]]
+pattern = "(?i)\\bexec\\s+bash\\b"
+description = "Prevent exec bash escape"
+
+[[shell.blocked_patterns]]
+pattern = "(?i)\\bexec\\s+sh\\b"
+description = "Prevent exec sh escape"
+
+[[shell.blocked_patterns]]
+pattern = "(?i)\\bcat\\s+/etc/shadow\\b"
+description = "Prevent shadow file access"
+
+[[shell.blocked_patterns]]
+pattern = "(?i)\\bcat\\s+/etc/ssh/ssh_host_.*_key\\b"
+description = "Prevent SSH key access"
+
+[paths]
+# Unified list of blocked paths for ALL tools that accept file paths
+# (shell_exec, file_read, file_write, etc.)
+blocked = [
+    "/etc",
+    "/root",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/opt",
+    "/boot",
+    "/dev",
+    "/proc",
+    "/sys",
+    "/var",
+]

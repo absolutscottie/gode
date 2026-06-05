@@ -1,0 +1,40 @@
+type FileWriteTool struct {
+	enabled bool
+	policy  *Policy
+}
+
+func NewFileWriteTool(policy *Policy) *FileWriteTool {
+	return &FileWriteTool{
+		enabled: true,
+		policy:  policy,
+	}
+}
+
+func (tool *FileWriteTool) Prompt(call string) (string, error) {
+	var args FileWriteArgs
+	err := json.Unmarshal([]byte(call), &args)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("Do you want to allow Cosmo to **write** `%s`?", args.Path), nil
+}
+
+func (tool *FileWriteTool) Execute(call string) (string, error) {
+	var args FileWriteArgs
+	err := json.Unmarshal([]byte(call), &args)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %s", err)
+	}
+
+	// Pre-approval validation  hard block before showing to user
+	if err := tool.policy.ValidatePath(args.Path); err != nil {
+		return "", fmt.Errorf("path rejected: %w", err)
+	}
+
+	result := FileWrite(args)
+	if !result.Success {
+		return "", fmt.Errorf("file write error: %s", result.Error)
+	}
+	return "", nil
+}
