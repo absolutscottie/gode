@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"gode/config/prompts"
 	"gode/internal/agent"
@@ -89,10 +90,31 @@ func (a *App) cancelLoop() {
 	}
 }
 
+// resolveFileWords replaces words in the message with their full file paths
+// from the fileList if the word is a substring of any file path.
+// Only words that look like file path components (contain '.' or '/') are matched.
+func (a *App) resolveFileWords(msg string) string {
+	words := strings.Fields(msg)
+	for i, word := range words {
+		// Only attempt to match if the word looks like a file path component
+		if !strings.ContainsAny(word, "./") {
+			continue
+		}
+		for _, file := range a.fileList {
+			if strings.Contains(file, word) {
+				words[i] = file
+				break
+			}
+		}
+	}
+	return strings.Join(words, " ")
+}
+
 func (a *App) userLoop() {
 	for msg := range a.userChan {
 		switch msg := msg.(type) {
 		case string:
+			msg = a.resolveFileWords(msg)
 			a.session.StoreMessages(agent.Message{
 				Role:    UserRole,
 				Content: msg,

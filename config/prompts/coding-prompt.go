@@ -1,7 +1,5 @@
 package prompts
 
-import "strings"
-
 var CodingPrompt = "## Role\n" +
 	"You are an expert software engineer specializing in \n" +
 	"- Go\n" +
@@ -37,8 +35,8 @@ var CodingPrompt = "## Role\n" +
 func BuildPrompt(fileList []string) string {
 	prompt := CodingPrompt
 	if len(fileList) > 0 {
-		prompt += "\n\n### PROJECT FILES\nThe following files are available in the project:\n" +
-			strings.Join(fileList, "\n")
+		//prompt += "\n\n### PROJECT FILES\nThe following files are available in the project:\n" +
+		//	strings.Join(fileList, "\n")
 	}
 	return prompt
 }
