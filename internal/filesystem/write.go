@@ -69,6 +69,16 @@ type FileWriteTool struct {
 	enabled bool
 }
 
+func (tool *FileWriteTool) Prompt(call string) (string, error) {
+	var args FileWriteArgs
+	err := json.Unmarshal([]byte(call), &args)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("Do you want to allow Cosmo to **write** `%s`?", args.Path), nil
+}
+
 func (tool *FileWriteTool) Execute(call string) (string, error) {
 	var args FileWriteArgs
 	err := json.Unmarshal([]byte(call), &args)

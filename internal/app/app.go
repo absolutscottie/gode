@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"gode/config/prompts"
@@ -22,6 +21,12 @@ const (
 	AgentRole  string = "assistant"
 	ToolRole   string = "tool"
 )
+
+// toolRegistry maps tool names to their implementations.
+var toolRegistry = map[string]filesystem.Tool{
+	"file_read":  &filesystem.FileReadTool{},
+	"file_write": &filesystem.FileWriteTool{},
+}
 
 // App orchestrates the LLM session and the TUI.
 type App struct {
@@ -61,10 +66,8 @@ func (a *App) Run() (tea.Model, error) {
 			},
 		},
 		ToolDescriptions: []agent.ToolDescription{
-			filesystem.FileReadTool,
-			filesystem.FileWriteTool,
-			filesystem.FileEditToolDescription,
-			//filesystem.FileInfoTool,
+			filesystem.FileWriteToolDescription,
+			filesystem.FileReadToolDescription,
 		},
 		ChunkFn:       func(s string) { a.sendChunk(s) },
 		FullMessageFn: func(s string) { a.sendFullMessage(s) },
@@ -138,7 +141,7 @@ func (a *App) userLoop() {
 				},
 			)
 
-			prompt, err := buildToolConfirmationPrompt(a.logger, toolCall)
+			result, err := a.handleToolCall(toolCall)
 			if err != nil {
 				a.session.StoreMessages(
 					agent.Message{
@@ -148,40 +151,21 @@ func (a *App) userLoop() {
 						Name:       toolCall.Function.Name,
 					},
 				)
-			} else if answer := a.session.ConfirmFn(prompt); !answer {
-				a.session.StoreMessages(
-					agent.Message{
-						Role:       ToolRole,
-						Content:    fmt.Errorf("user denied tool request").Error(),
-						ToolCallId: toolCall.ID,
-						Name:       toolCall.Function.Name,
-					},
-				)
-			} else {
-				result, err := handleToolCall(a.logger, toolCall)
-				if err != nil {
-					a.session.StoreMessages(
-						agent.Message{
-							Role:       ToolRole,
-							Content:    err.Error(),
-							ToolCallId: toolCall.ID,
-							Name:       toolCall.Function.Name,
-						},
-					)
-				} else {
-					a.session.StoreMessages(
-						agent.Message{
-							Role:       ToolRole,
-							Content:    result,
-							ToolCallId: toolCall.ID,
-							Name:       toolCall.Function.Name,
-						},
-					)
-				}
-
-				a.userChan <- toolCall
+				continue
 			}
+
+			a.session.StoreMessages(
+				agent.Message{
+					Role:       ToolRole,
+					Content:    result,
+					ToolCallId: toolCall.ID,
+					Name:       toolCall.Function.Name,
+				},
+			)
+
+			a.userChan <- toolCall
 		}
+
 		a.currentCancelFunc = nil
 	}
 }
@@ -220,129 +204,21 @@ func (a *App) sendAgentStop() {
 	a.ui.Send(tui.AgentStop{})
 }
 
-func handleToolCall(logger zerolog.Logger, t *agent.ToolCall) (string, error) {
-	switch t.Function.Name {
-	case "file_read":
-		var args filesystem.FileReadArgs
-		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
-		if err != nil {
-			logger.Error().Msgf("failed to parse arguments: %s", err)
-			return "", fmt.Errorf("failed to parse arguments: %s", err)
-		}
-		result := filesystem.FileRead(args)
-		if !result.Success {
-			logger.Error().Msgf("file read error: %s", result.Error)
-			return "", fmt.Errorf("file read error: %s", result.Error)
-		}
-		return result.Content, nil
-	case "file_write":
-		var args filesystem.FileWriteArgs
-		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
-		if err != nil {
-			logger.Error().Msgf("failed to parse arguments: %s", err)
-			return "", fmt.Errorf("failed to parse arguments: %s", err)
-		}
-		result := filesystem.FileWrite(args)
-		if !result.Success {
-			logger.Error().Msgf("file write error: %s", result.Error)
-			return "", fmt.Errorf("file write error: %s", result.Error)
-		}
-		return "", nil
-	case "file_edit":
-		var args filesystem.FileEditArgs
-		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
-		if err != nil {
-			logger.Error().Msgf("failed to parse arguments: %s", err)
-			return "", fmt.Errorf("failed to parse arguments: %s", err)
-		}
-		result := filesystem.FileEdit(args)
-		if !result.Success {
-			logger.Error().Msgf("file edit error: %s", result.Error)
-			return "", fmt.Errorf("file edit error: %s", result.Error)
-		}
-		return "", nil
-	case "file_info":
-		var args filesystem.FileInfoArgs
-		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
-		if err != nil {
-			logger.Error().Msgf("failed to parse arguments: %s", err)
-			return "", fmt.Errorf("failed to parse arguments: %s", err)
-		}
-		result := filesystem.FileInfo(args)
-		if !result.Success {
-			logger.Error().Msgf("file info error: %s", result.Error)
-			return "", fmt.Errorf("file info error: %s", result.Error)
-		}
-		return result.String()
-	case "shell_exec":
-		var args filesystem.ShellExecArgs
-		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
-		if err != nil {
-			logger.Error().Msgf("failed to parse arguments: %s", err)
-			return "", fmt.Errorf("failed to parse arguments: %s", err)
-		}
-		result := filesystem.ShellExec(args)
-		if !result.Success {
-			logger.Error().Msgf("shell exec error: %s", result.Error)
-			return "", fmt.Errorf("shell exec error: %s", result.Error)
-		}
-		return result.String()
-	default:
-		return "", fmt.Errorf("tool not found: %s", t.Function.Name)
-	}
-}
-
-func buildToolConfirmationPrompt(logger zerolog.Logger, t *agent.ToolCall) (string, error) {
-	switch t.Function.Name {
-	case "file_read":
-		var args filesystem.FileReadArgs
-		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
-		if err != nil {
-			logger.Error().Msgf("failed to parse arguments: %s", err)
-			return "", err
-		}
-
-		return fmt.Sprintf("Do you want to allow Cosmo to **read** `%s`?", args.Path), nil
-	case "file_write":
-		var args filesystem.FileWriteArgs
-		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
-		if err != nil {
-			logger.Error().Msgf("failed to parse arguments: %s", err)
-			return "", err
-		}
-
-		return fmt.Sprintf("Do you want to allow Cosmo to **write** `%s`?", args.Path), nil
-
-	case "file_edit":
-		var args filesystem.FileEditArgs
-		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
-		if err != nil {
-			logger.Error().Msgf("failed to parse arguments: %s", err)
-			return "", err
-		}
-
-		return fmt.Sprintf("Do you want to allow Cosmo to **edit** `%s`?", args.Path), nil
-
-	case "file_info":
-		var args filesystem.FileInfoArgs
-		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
-		if err != nil {
-			logger.Error().Msgf("failed to parse arguments: %s", err)
-			return "", err
-		}
-
-		return fmt.Sprintf("Do you want to allow Cosmo to **get info** on `%s`?", args.Path), nil
-
-	case "shell_exec":
-		var args filesystem.ShellExecArgs
-		err := json.Unmarshal([]byte(t.Function.Arguments), &args)
-		if err != nil {
-			logger.Error().Msgf("failed to parse arguments: %s", err)
-			return "", err
-		}
-
-		return fmt.Sprintf("Do you want to allow Cosmo to **execute the command** `%s`?", args.Command), nil
+func (a *App) handleToolCall(t *agent.ToolCall) (string, error) {
+	tool, ok := toolRegistry[t.Function.Name]
+	if !ok {
+		return "", fmt.Errorf("tool: %s not found", t.Function.Name)
 	}
 
-	return "How much wood could a wood chuck chuck if a wood chuck could chuck wood?", fmt.Errorf("unknown tool request: %s" + t.Function.Name)
+	prompt, err := tool.Prompt(t.Function.Arguments)
+	if err != nil {
+		return "", err
+	}
+
+	answer := a.promptAndWait(prompt)
+	if !answer {
+		return "", fmt.Errorf("user rejected tool call for: %s", t.Function.Name)
+	}
+
+	return tool.Execute(t.Function.Arguments)
 }

@@ -3,7 +3,8 @@ package filesystem
 import "gode/internal/agent"
 
 type Tool interface {
-	Execute(agent.ToolCall) (string, error)
+	Execute(string) (string, error)
+	Prompt(string) (string, error)
 	GetName() string
 	GetDescription() agent.ToolDescription
 	SetEnabled(bool)

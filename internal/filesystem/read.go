@@ -113,6 +113,16 @@ type FileReadTool struct {
 	enabled bool
 }
 
+func (tool *FileReadTool) Prompt(call string) (string, error) {
+	var args FileReadArgs
+	err := json.Unmarshal([]byte(call), &args)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("Do you want to allow Cosmo to **read** `%s`?", args.Path), nil
+}
+
 func (tool *FileReadTool) Execute(call string) (string, error) {
 	var args FileReadArgs
 	err := json.Unmarshal([]byte(call), &args)
