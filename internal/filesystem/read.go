@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,7 @@ import (
 	"gode/internal/agent"
 )
 
-var FileReadTool = agent.ToolDescription{
+var FileReadToolDescription = agent.ToolDescription{
 	Type: "function",
 	Function: agent.Function{
 		Name:        "file_read",
@@ -106,4 +107,37 @@ func FileRead(args FileReadArgs) FileReadResult {
 		Success: true,
 		Content: content.String(),
 	}
+}
+
+type FileReadTool struct {
+	enabled bool
+}
+
+func (tool *FileReadTool) Execute(call string) (string, error) {
+	var args FileReadArgs
+	err := json.Unmarshal([]byte(call), &args)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %s", err)
+	}
+	result := FileRead(args)
+	if !result.Success {
+		return "", fmt.Errorf("file read error: %s", result.Error)
+	}
+	return result.Content, nil
+}
+
+func (t *FileReadTool) GetName() string {
+	return FileReadToolDescription.Function.Name
+}
+
+func (t *FileReadTool) Enabled() bool {
+	return t.enabled
+}
+
+func (t *FileReadTool) SetEnabled(enabled bool) {
+	t.enabled = enabled
+}
+
+func (t *FileReadTool) GetDescription() agent.ToolDescription {
+	return FileReadToolDescription
 }

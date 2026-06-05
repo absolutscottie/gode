@@ -124,7 +124,7 @@ func (tool *FileEditTool) Execute(call string) (string, error) {
 	}
 	result := FileEdit(args)
 	if !result.Success {
-		return "", fmt.Errorf("file read error: %s", result.Error)
+		return "", fmt.Errorf("file edit error: %s", result.Error)
 	}
 	return "", nil
 }

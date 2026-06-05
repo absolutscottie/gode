@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 )
 
-var FileInfoTool = agent.ToolDescription{
+var FileInfoToolDescription = agent.ToolDescription{
 	Type: "function",
 	Function: agent.Function{
 		Name:        "file_info",
@@ -88,4 +88,37 @@ func FileInfo(args FileInfoArgs) FileInfoResult {
 		SizeBytes: info.Size(),
 		LineCount: lineCount,
 	}
+}
+
+type FileInfoTool struct {
+	enabled bool
+}
+
+func (tool *FileInfoTool) Execute(call string) (string, error) {
+	var args FileInfoArgs
+	err := json.Unmarshal([]byte(call), &args)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %s", err)
+	}
+	result := FileInfo(args)
+	if !result.Success {
+		return "", fmt.Errorf("file info error: %s", result.Error)
+	}
+	return result.String()
+}
+
+func (t *FileInfoTool) GetName() string {
+	return FileInfoToolDescription.Function.Name
+}
+
+func (t *FileInfoTool) Enabled() bool {
+	return t.enabled
+}
+
+func (t *FileInfoTool) SetEnabled(enabled bool) {
+	t.enabled = enabled
+}
+
+func (t *FileInfoTool) GetDescription() agent.ToolDescription {
+	return FileInfoToolDescription
 }

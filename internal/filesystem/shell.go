@@ -11,7 +11,7 @@ import (
 	"gode/internal/agent"
 )
 
-var ShellExecTool = agent.ToolDescription{
+var ShellExecToolDescription = agent.ToolDescription{
 	Type: "function",
 	Function: agent.Function{
 		Name:        "shell_exec",
@@ -94,4 +94,37 @@ func ShellExec(args ShellExecArgs) ShellExecResult {
 		Output:   string(output),
 		ExitCode: exitCode,
 	}
+}
+
+type ShellExecTool struct {
+	enabled bool
+}
+
+func (tool *ShellExecTool) Execute(call string) (string, error) {
+	var args ShellExecArgs
+	err := json.Unmarshal([]byte(call), &args)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %s", err)
+	}
+	result := ShellExec(args)
+	if !result.Success {
+		return "", fmt.Errorf("shell exec error: %s", result.Error)
+	}
+	return result.String()
+}
+
+func (t *ShellExecTool) GetName() string {
+	return ShellExecToolDescription.Function.Name
+}
+
+func (t *ShellExecTool) Enabled() bool {
+	return t.enabled
+}
+
+func (t *ShellExecTool) SetEnabled(enabled bool) {
+	t.enabled = enabled
+}
+
+func (t *ShellExecTool) GetDescription() agent.ToolDescription {
+	return ShellExecToolDescription
 }

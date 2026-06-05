@@ -1,12 +1,14 @@
 package filesystem
 
 import (
+	"encoding/json"
+	"fmt"
 	"gode/internal/agent"
 	"os"
 	"path/filepath"
 )
 
-var FileWriteTool = agent.ToolDescription{
+var FileWriteToolDescription = agent.ToolDescription{
 	Type: "function",
 	Function: agent.Function{
 		Name:        "file_write",
@@ -61,4 +63,37 @@ func FileWrite(args FileWriteArgs) FileWriteResult {
 	}
 
 	return FileWriteResult{Success: true}
+}
+
+type FileWriteTool struct {
+	enabled bool
+}
+
+func (tool *FileWriteTool) Execute(call string) (string, error) {
+	var args FileWriteArgs
+	err := json.Unmarshal([]byte(call), &args)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %s", err)
+	}
+	result := FileWrite(args)
+	if !result.Success {
+		return "", fmt.Errorf("file write error: %s", result.Error)
+	}
+	return "", nil
+}
+
+func (t *FileWriteTool) GetName() string {
+	return FileWriteToolDescription.Function.Name
+}
+
+func (t *FileWriteTool) Enabled() bool {
+	return t.enabled
+}
+
+func (t *FileWriteTool) SetEnabled(enabled bool) {
+	t.enabled = enabled
+}
+
+func (t *FileWriteTool) GetDescription() agent.ToolDescription {
+	return FileWriteToolDescription
 }
