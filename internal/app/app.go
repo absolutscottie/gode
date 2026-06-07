@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"gode/config/prompts"
 	"gode/internal/agent"
@@ -43,14 +42,14 @@ func New(host, modelName string, fileList []string, logger log.Logger) *App {
 	llm := llamacpp.NewProvider(host, modelName)
 
 	// Load security policy
-	policy, err := filesystem.InitPolicy("config/shell_policy.toml")
+	policy, err := filesystem.InitPolicy("shell_policy.toml")
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to load security policy")
 	}
 
 	// Initialize tools with policy
 	toolRegistry = map[string]filesystem.Tool{
-		"file_read":  filesystem.NewFileReadTool(policy),
+		"file_read":  filesystem.NewFileReadTool(policy, &logger),
 		"file_write": filesystem.NewFileWriteTool(policy),
 		"shell_exec": filesystem.NewShellExecTool(policy),
 	}
@@ -101,31 +100,10 @@ func (a *App) cancelLoop() {
 	}
 }
 
-// resolveFileWords replaces words in the message with their full file paths
-// from the fileList if the word is a substring of any file path.
-// Only words that look like file path components (contain '.' or '/') are matched.
-func (a *App) resolveFileWords(msg string) string {
-	words := strings.Fields(msg)
-	for i, word := range words {
-		// Only attempt to match if the word looks like a file path component
-		if !strings.ContainsAny(word, "./") {
-			continue
-		}
-		for _, file := range a.fileList {
-			if strings.Contains(file, word) {
-				words[i] = file
-				break
-			}
-		}
-	}
-	return strings.Join(words, " ")
-}
-
 func (a *App) userLoop() {
 	for msg := range a.userChan {
 		switch msg := msg.(type) {
 		case string:
-			msg = a.resolveFileWords(msg)
 			a.session.StoreMessages(agent.Message{
 				Role:    UserRole,
 				Content: msg,
@@ -190,6 +168,12 @@ func (a *App) userLoop() {
 
 			a.logger.Debug().Msgf("handled tool call yielding result: %s", result)
 			a.session.StoreMessages(
+				// agent.Message{
+				// 	Role: AgentRole,
+				// 	ToolCalls: []agent.ToolCall{
+				// 		*toolCall,
+				// 	},
+				// },
 				agent.Message{
 					Role:       ToolRole,
 					Content:    result,
@@ -212,7 +196,7 @@ func (a *App) sendChunk(chunk string) {
 
 // sendFullMessage sends a complete agent message to the TUI.
 func (a *App) sendFullMessage(fullMessage string) {
-	a.logger.Info().Msgf("sending full message: %s", fullMessage)
+	a.logger.Debug().Msgf("sending full message to user: %s", fullMessage)
 	a.ui.Send(tui.MessageFull{Content: fullMessage})
 }
 
@@ -247,6 +231,11 @@ func (a *App) handleToolCall(t *agent.ToolCall) (string, error) {
 
 	prompt, err := tool.Prompt(t.Function.Arguments)
 	if err != nil {
+		return "", err
+	}
+
+	// Pre-approval validation  hard block before showing to user
+	if err := tool.Validate(t.Function.Arguments); err != nil {
 		return "", err
 	}
 

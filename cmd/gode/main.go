@@ -105,13 +105,13 @@ func readAllFiles(root string) ([]string, error) {
 			return nil
 		}
 
-		// Store relative path from root
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
+		// Store full path from root
+		// rel, err := filepath.Rel(root, path)
+		// if err != nil {
+		// 	return err
+		// }
 
-		files = append(files, rel)
+		files = append(files, path)
 		return nil
 	})
 

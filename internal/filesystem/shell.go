@@ -137,11 +137,6 @@ func (tool *ShellExecTool) Execute(call string) (string, error) {
 		return "", fmt.Errorf("failed to parse arguments: %s", err)
 	}
 
-	// pre-approval: hard block before displaying it to the user
-	if err := tool.policy.ValidateShellCommand(args.Command); err != nil {
-		return "", fmt.Errorf("command rejected: %w", err)
-	}
-
 	result := ShellExec(args)
 	if !result.Success {
 		return "", fmt.Errorf("shell exec error: %s", result.Error)
@@ -159,6 +154,17 @@ func (t *ShellExecTool) Enabled() bool {
 
 func (t *ShellExecTool) SetEnabled(enabled bool) {
 	t.enabled = enabled
+}
+
+func (t *ShellExecTool) Validate(input string) error {
+	var args ShellExecArgs
+	err := json.Unmarshal([]byte(input), &args)
+	if err != nil {
+		return fmt.Errorf("failed to parse arguments: %s", err)
+	}
+
+	// pre-approval: hard block before displaying it to the user
+	return t.policy.ValidateShellCommand(args.Command)
 }
 
 func (t *ShellExecTool) GetDescription() agent.ToolDescription {

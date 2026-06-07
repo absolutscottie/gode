@@ -9,13 +9,16 @@ import (
 	"strings"
 
 	"gode/internal/agent"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 var FileReadToolDescription = agent.ToolDescription{
 	Type: "function",
 	Function: agent.Function{
 		Name:        "file_read",
-		Description: "Reads the content of a file from the file system safely. Restricted to text files. Supports optional line offsets for efficient context usage. Callers should use the file_info tool before calling this tool to determine if it makes sense to use offsets. Files < 1 kilobyte should be read without offsets.",
+		Description: "Reads the content of a **SINGLE FILE** from the file system safely. Restricted to text files.",
 		Params: agent.FunctionParam{
 			Type: "object",
 			Properties: map[string]agent.FunctionParamProperty{
@@ -23,14 +26,14 @@ var FileReadToolDescription = agent.ToolDescription{
 					Type:        "string",
 					Description: "The absolute path of the file in the file system (e.g. `/home/scottie/file.txt`)",
 				},
-				"start_line": {
-					Type:        "integer",
-					Description: "The 1-indexed line number to start reading from (optional).",
-				},
-				"end_line": {
-					Type:        "integer",
-					Description: "The 1-indexed line number to end reading at (inclusive, optional).",
-				},
+				// "start_line": {
+				// 	Type:        "integer",
+				// 	Description: "The 1-indexed line number to start reading from (optional).",
+				// },
+				// "end_line": {
+				// 	Type:        "integer",
+				// 	Description: "The 1-indexed line number to end reading at (inclusive, optional).",
+				// },
 			},
 		},
 		Required: []string{
@@ -53,6 +56,7 @@ type FileReadResult struct {
 }
 
 func FileRead(args FileReadArgs) FileReadResult {
+	log.Logger.Debug().Msg("FileRead()")
 	// Resolve to absolute path to prevent directory traversal attacks
 	absPath, err := filepath.Abs(args.Path)
 	if err != nil {
@@ -112,14 +116,26 @@ func FileRead(args FileReadArgs) FileReadResult {
 type FileReadTool struct {
 	enabled bool
 	policy  *Policy
+	logger  *zerolog.Logger
 }
 
-func NewFileReadTool(policy *Policy) *FileReadTool {
+func NewFileReadTool(policy *Policy, logger *zerolog.Logger) *FileReadTool {
 	return &FileReadTool{
 		enabled: true,
 		policy:  policy,
+		logger:  logger,
 	}
 }
+
+// func ValidateToolCall(call string) (bool, error) {
+// 	var args FileReadArgs
+// 	err := json.Unmarshal([]byte(call), &args)
+// 	if err == nil {
+// 		return true, nil
+// 	}
+
+// 	// see if the failure was due to too many
+// }
 
 func (tool *FileReadTool) Prompt(call string) (string, error) {
 	var args FileReadArgs
@@ -136,11 +152,6 @@ func (tool *FileReadTool) Execute(call string) (string, error) {
 	err := json.Unmarshal([]byte(call), &args)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %s", err)
-	}
-
-	// Pre-approval validation  hard block before showing to user
-	if err := tool.policy.ValidatePath(args.Path); err != nil {
-		return "", fmt.Errorf("path rejected: %w", err)
 	}
 
 	result := FileRead(args)
@@ -160,6 +171,16 @@ func (t *FileReadTool) Enabled() bool {
 
 func (t *FileReadTool) SetEnabled(enabled bool) {
 	t.enabled = enabled
+}
+
+func (t *FileReadTool) Validate(input string) error {
+	var args FileReadArgs
+	err := json.Unmarshal([]byte(input), &args)
+	if err != nil {
+		return fmt.Errorf("failed to parse arguments: %s", err)
+	}
+
+	return t.policy.ValidatePath(args.Path)
 }
 
 func (t *FileReadTool) GetDescription() agent.ToolDescription {

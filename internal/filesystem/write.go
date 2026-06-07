@@ -94,10 +94,6 @@ func (tool *FileWriteTool) Execute(call string) (string, error) {
 		return "", fmt.Errorf("failed to parse arguments: %s", err)
 	}
 
-	if err := tool.policy.ValidatePath(args.Path); err != nil {
-		return "", fmt.Errorf("path rejected %w", err)
-	}
-
 	result := FileWrite(args)
 	if !result.Success {
 		return "", fmt.Errorf("file write error: %s", result.Error)
@@ -115,6 +111,16 @@ func (t *FileWriteTool) Enabled() bool {
 
 func (t *FileWriteTool) SetEnabled(enabled bool) {
 	t.enabled = enabled
+}
+
+func (t *FileWriteTool) Validate(input string) error {
+	var args FileReadArgs
+	err := json.Unmarshal([]byte(input), &args)
+	if err != nil {
+		return fmt.Errorf("failed to parse arguments: %s", err)
+	}
+
+	return t.policy.ValidatePath(args.Path)
 }
 
 func (t *FileWriteTool) GetDescription() agent.ToolDescription {

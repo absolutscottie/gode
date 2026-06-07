@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/rs/zerolog/log"
 )
 
 //go:embed shell_policy.toml
@@ -100,6 +101,7 @@ func (p *Policy) ValidateShellCommand(cmd string) error {
 	// Check if any arguments contain blocked paths
 	args := strings.Join(parts[1:], " ")
 	for _, blockedPath := range p.Shell.BlockedPaths {
+		log.Logger.Debug().Msgf("checking if args:%s uses blocked path: %s", args, blockedPath)
 		if strings.Contains(args, blockedPath) {
 			return fmt.Errorf("command contains blocked path '%s'", blockedPath)
 		}
@@ -125,6 +127,7 @@ func (p *Policy) ValidatePath(path string) error {
 
 	// Check against blocked paths
 	for _, blockedPath := range p.Paths.compiledPatterns {
+		log.Logger.Debug().Msgf("checking if absolute path: %s matches blocked path: %s", absPath, blockedPath)
 		if blockedPath.MatchString(absPath) {
 			return fmt.Errorf("path '%s' is blocked", absPath)
 		}
