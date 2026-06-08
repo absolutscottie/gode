@@ -14,7 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var host = "192.168.4.106:8080"
+var host = "baz:8080"
 var modelName = "Qwen3.6-35B-A3B-UD-IQ3_XXS.gguf"
 
 var logger zerolog.Logger
@@ -105,13 +105,12 @@ func readAllFiles(root string) ([]string, error) {
 			return nil
 		}
 
-		// Store full path from root
-		// rel, err := filepath.Rel(root, path)
-		// if err != nil {
-		// 	return err
-		// }
+		if strings.HasSuffix(path, "app.log") || strings.HasSuffix(path, "gode") || strings.Contains(path, "git/objects") {
+			return nil
+		}
 
 		files = append(files, path)
+		log.Logger.Debug().Msgf("appending file: %s", path)
 		return nil
 	})
 
