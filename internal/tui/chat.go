@@ -225,10 +225,10 @@ func (p Model) handleUserInput(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			return p.refreshMessages()
 		}
 
+		p, _ = p.flushToolCallMessages()
+
 		p.messages = append(p.messages, NewChatMessage("You", text))
 		p.userChan <- text
-
-		p, _ = p.flushToolCallMessages()
 
 		return p.refreshMessages()
 	default:
