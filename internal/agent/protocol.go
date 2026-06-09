@@ -14,10 +14,16 @@ type Delta struct {
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 }
 
-type Choices struct {
+type ChunkedChoices struct {
 	FinishReason string `json:"finish_reason"`
 	Index        int    `json:"index"`
 	Delta        Delta  `json:"delta"`
+}
+
+type Choices struct {
+	FinishReason string  `json:"finish_reason"`
+	Index        int     `json:"index"`
+	Message      Message `json:"message"`
 }
 
 type TokenDetails struct {
@@ -36,13 +42,20 @@ type Usage struct {
 }
 
 type ChunkedResponse struct {
+	Created           int64            `json:"created"`
+	ID                string           `json:"id"`
+	Model             string           `json:"model"`
+	SystemFingerprint string           `json:"system_fingerprint"`
+	Object            string           `json:"object"`
+	Choices           []ChunkedChoices `json:"choices"`
+	Usage             Usage            `json:"usage,omitempty"`
+}
+
+type Response struct {
 	Created           int64     `json:"created"`
-	ID                string    `json:"id"`
-	Model             string    `json:"model"`
 	SystemFingerprint string    `json:"system_fingerprint"`
 	Object            string    `json:"object"`
 	Choices           []Choices `json:"choices"`
-	Usage             Usage     `json:"usage,omitempty"`
 }
 
 type ToolCall struct {
