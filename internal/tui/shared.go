@@ -22,6 +22,7 @@ type ConfirmationRequest struct {
 type TickMsg time.Time
 
 type ChatMessage struct {
+	ID      string
 	Sender  string
 	Content string
 }
@@ -48,3 +49,10 @@ type TokenUsageMessage struct {
 type StopGeneration struct{}
 
 type GenerationStopped struct{}
+
+type ToolCallMessage struct {
+	ID       string
+	ToolName string
+	Args     string
+	Status   string // "approved", "denied", "error"
+}
