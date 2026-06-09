@@ -53,7 +53,170 @@ func NewProvider(host, model string) LlamacppProvider {
 
 func buildChatURL(host, model string) string {
 	return fmt.Sprintf("http://%s/chat/completions", host)
+}
 
+func buildCompletionURL(host string) string {
+	return fmt.Sprintf("http://%s/chat/completions", host)
+}
+
+// CompletionPayload maps to the native llama.cpp /completion endpoint.
+type CompletionPayload struct {
+	Model       string              `json:"model,omitempty"`
+	Messages    []CompletionMessage `json:"messages,omitempty"`
+	CachePrompt *bool               `json:"cache_prompt,omitempty"`
+	NPredict    int                 `json:"n_predict,omitempty"`
+	Temperature float32             `json:"temperature,omitempty"`
+	Stop        []string            `json:"stop,omitempty"`
+}
+
+// CompletionMessage is a message in a /completion request.
+type CompletionMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// CompletionResult is the response from the native /completion endpoint.
+type CompletionResult struct {
+	Content         string `json:"content"`
+	Stop            bool   `json:"stop"`
+	GenerationTime  int64  `json:"generation_time"`
+	TokensKept      int    `json:"tokens_kept"`
+	TokensBaked     int    `json:"tokens_baked"`
+	TokensGenerated int    `json:"tokens_generated"`
+	TokensCached    int    `json:"tokens_cached"`
+	TokensPrompt    int    `json:"tokens_prompt"`
+}
+
+// CompletionOption allows callers to configure a Completion request.
+type CompletionOption func(*CompletionConfig)
+
+type CompletionConfig struct {
+	systemPrompt string
+	cachePrompt  *bool
+	nPredict     int
+	temperature  float32
+	stop         []string
+}
+
+// WithSystemPrompt sets the system prompt for the completion request.
+func WithSystemPrompt(systemPrompt string) CompletionOption {
+	return func(c *CompletionConfig) {
+		c.systemPrompt = systemPrompt
+	}
+}
+
+// WithCachePrompt enables or disables KV cache for the prompt prefix.
+func WithCachePrompt(enabled bool) CompletionOption {
+	return func(c *CompletionConfig) {
+		c.cachePrompt = &enabled
+	}
+}
+
+// WithNPredict sets the maximum number of tokens to generate.
+func WithNPredict(n int) CompletionOption {
+	return func(c *CompletionConfig) {
+		c.nPredict = n
+	}
+}
+
+// WithTemperature sets the sampling temperature.
+func WithTemperature(t float32) CompletionOption {
+	return func(c *CompletionConfig) {
+		c.temperature = t
+	}
+}
+
+// WithStop sets stop sequences that halt generation.
+func WithStop(stop ...string) CompletionOption {
+	return func(c *CompletionConfig) {
+		c.stop = stop
+	}
+}
+
+// Completion sends a single, non-streaming request to the /completion endpoint.
+func (llama LlamacppProvider) Completion(ctx context.Context, userMessage, systemPrompt string, opts ...CompletionOption) (string, error) {
+	cfg := &CompletionConfig{
+		systemPrompt: systemPrompt,
+		cachePrompt:  boolPtr(true),
+		nPredict:     512,
+		temperature:  0.4,
+	}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	messages := []CompletionMessage{
+		{
+			Role:    "system",
+			Content: cfg.systemPrompt,
+		},
+		{
+			Role:    "user",
+			Content: userMessage,
+		},
+	}
+
+	payload := CompletionPayload{
+		Model:       llama.model,
+		Messages:    messages,
+		CachePrompt: cfg.cachePrompt,
+		//NPredict:    cfg.nPredict,
+		Temperature: cfg.temperature,
+		Stop:        cfg.stop,
+	}
+
+	jm, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal completion payload: %w", err)
+	}
+
+	log.Logger.Debug().Msgf("sending payload: %s", jm)
+
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		buildCompletionURL(llama.host),
+		bytes.NewReader(jm),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to create completion request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute completion request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var output []byte
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		if scanner.Err() != nil {
+			if scanner.Err() == io.EOF {
+				break
+			}
+
+			return "", scanner.Err()
+		}
+		buf := scanner.Bytes()
+		output = append(output, buf...)
+	}
+
+	log.Logger.Debug().Msgf("received summary output: %s", string(output))
+
+	var result agent.Response
+	err = json.Unmarshal(output, &result)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode completion response: %w", err)
+	}
+
+	return result.Choices[0].Message.Content, nil
+}
+
+func boolPtr(b bool) *bool {
+	return &b
 }
 
 func (llama LlamacppProvider) ChatStreamWithContext(ctx context.Context, session *Session) (string, *agent.ToolCall, error) {

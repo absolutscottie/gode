@@ -35,6 +35,7 @@ type App struct {
 	logger            log.Logger
 	fileList          []string
 	currentCancelFunc context.CancelFunc
+	firstUserMsgSent  bool
 }
 
 // New creates a new App with the given configuration.
@@ -108,6 +109,12 @@ func (a *App) userLoop() {
 				Role:    UserRole,
 				Content: msg,
 			})
+		}
+
+		// Generate a session title from the first user message only.
+		if !a.firstUserMsgSent {
+			a.firstUserMsgSent = true
+			a.generateSessionTitle()
 		}
 
 		var cancelCtx context.Context
@@ -188,6 +195,43 @@ func (a *App) userLoop() {
 
 		a.currentCancelFunc = nil
 	}
+}
+
+// generateSessionTitle sends a non-cached completion request to summarize
+// the first user message as a short session title.
+func (a *App) generateSessionTitle() {
+	// The first user message is the last stored message.
+	if len(a.session.Messages) == 0 {
+		a.logger.Warn().Msg("no messages available for session title generation")
+		return
+	}
+	firstUserMsg := a.session.Messages[len(a.session.Messages)-1].Content
+	if firstUserMsg == "" {
+		a.logger.Warn().Msg("first user message is empty, skipping title generation")
+		return
+	}
+
+	a.logger.Info().Str("user_message", firstUserMsg).Msg("generating session title")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	systemPrompt := "You are an expert AI assistant that specializes in summarizing coding conversations. Analyze the user's first message below and generate a short, descriptive title for the session. The title should be exactly 3 to 6 words long and focus on the core programming task, technology, or bug being addressed. Do not use quotation marks or introductory text"
+
+	a.logger.Debug().Str("system prompt", systemPrompt).Str("user message", firstUserMsg).Msg("completion prompt")
+
+	title, err := a.llm.Completion(ctx, firstUserMsg, systemPrompt, llamacpp.WithCachePrompt(false), llamacpp.WithNPredict(64))
+	if err != nil {
+		a.logger.Error().Err(err).Msg("failed to generate session title")
+		return
+	}
+
+	if title == "" {
+		a.logger.Warn().Msg("session title is empty, using fallback")
+		title = "New Session"
+	}
+
+	a.logger.Info().Str("title", title).Msg("session title generated")
 }
 
 // sendToolCallPending sends a pending tool call message to the TUI.
