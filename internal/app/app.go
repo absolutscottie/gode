@@ -163,17 +163,18 @@ func (a *App) userLoop() {
 						Name:       toolCall.Function.Name,
 					},
 				)
+				a.sendToolCall(toolCall, "error")
 				continue
 			}
 
 			a.logger.Debug().Msgf("handled tool call yielding result: %s", result)
 			a.session.StoreMessages(
-				// agent.Message{
-				// 	Role: AgentRole,
-				// 	ToolCalls: []agent.ToolCall{
-				// 		*toolCall,
-				// 	},
-				// },
+				agent.Message{
+					Role: AgentRole,
+					ToolCalls: []agent.ToolCall{
+						*toolCall,
+					},
+				},
 				agent.Message{
 					Role:       ToolRole,
 					Content:    result,
@@ -187,6 +188,16 @@ func (a *App) userLoop() {
 
 		a.currentCancelFunc = nil
 	}
+}
+
+// sendToolCallPending sends a pending tool call message to the TUI.
+func (a *App) sendToolCall(tc *agent.ToolCall, status string) {
+	a.ui.Send(tui.ToolCallMessage{
+		ID:       tc.ID,
+		ToolName: tc.Function.Name,
+		Args:     tc.Function.Arguments,
+		Status:   status,
+	})
 }
 
 // sendChunk sends a chunk of streamed output to the TUI.
@@ -241,8 +252,11 @@ func (a *App) handleToolCall(t *agent.ToolCall) (string, error) {
 
 	answer := a.promptAndWait(prompt)
 	if !answer {
+		a.sendToolCall(t, "denied")
 		return "", fmt.Errorf("user rejected tool call for: %s", t.Function.Name)
 	}
+
+	a.sendToolCall(t, "approved")
 
 	return tool.Execute(t.Function.Arguments)
 }

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/spinner"
@@ -14,20 +15,20 @@ import (
 )
 
 type Model struct {
-	messages      []ChatMessage
-	agentChunks   string
-	textarea      textarea.Model
-	viewport      viewport.Model
-	confirmDialog DialogModel
-	width         int
-	height        int
-	userChan      chan any
-	cancelChan    chan any
-	blenoffset    int
-	spinner       spinner.Model
-	agentActive   bool
-
+	messages                   []ChatMessage
+	agentChunks                string
+	textarea                   textarea.Model
+	viewport                   viewport.Model
+	confirmDialog              DialogModel
+	width                      int
+	height                     int
+	userChan                   chan any
+	cancelChan                 chan any
+	blenoffset                 int
+	spinner                    spinner.Model
+	agentActive                bool
 	currentConfirmationRequest ConfirmationRequest
+	pendingToolCalls           []ToolCallMessage
 }
 
 func InitialModel(userChan chan any, cancelChan chan any) tea.Model {
@@ -50,16 +51,17 @@ func InitialModel(userChan chan any, cancelChan chan any) tea.Model {
 	vp.KeyMap.Right.SetEnabled(false)
 
 	s := spinner.New()
-	s.Spinner = spinner.Points
+	s.Spinner = spinner.Dot
 
 	p := Model{
-		textarea:      ta,
-		viewport:      vp,
-		messages:      []ChatMessage{},
-		userChan:      userChan,
-		confirmDialog: InitialDialogModel(),
-		blenoffset:    0,
-		spinner:       s,
+		textarea:         ta,
+		viewport:         vp,
+		messages:         []ChatMessage{},
+		userChan:         userChan,
+		confirmDialog:    InitialDialogModel(),
+		blenoffset:       0,
+		spinner:          s,
+		pendingToolCalls: []ToolCallMessage{},
 	}
 
 	return p
@@ -108,6 +110,9 @@ func (p Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case GenerationStopped:
 		p, mCmd = p.handleGenerationStopped(msg)
+
+	case ToolCallMessage:
+		p, mCmd = p.handleToolCallMessage(msg)
 	}
 
 	p.confirmDialog, dCmd = p.confirmDialog.Update(msg)
@@ -130,7 +135,6 @@ func (p Model) handleAgentStop(_ AgentStop) (Model, tea.Cmd) {
 }
 
 func (p Model) handleTick(_ tea.Msg) (Model, tea.Cmd) {
-	//log.Logger.Debug().Msgf("received tick message")
 	return p, nil
 }
 
@@ -158,9 +162,23 @@ func (p Model) handleAgentChunk(msg MessageChunk) (Model, tea.Cmd) {
 
 func (p Model) handleAgentInput(msg MessageFull) (Model, tea.Cmd) {
 	log.Logger.Debug().Msg("handleAgentInput()")
+
+	// Flush any pending tool calls into chat history before adding the new message
+	p, _ = p.flushToolCallMessages()
+
 	p.agentChunks = ""
 	p.messages = append(p.messages, NewChatMessage("Cosmo", msg.Content))
 	return p.refreshMessages()
+}
+
+func (p Model) flushToolCallMessages() (Model, tea.Cmd) {
+	if len(p.pendingToolCalls) > 0 {
+		toolCallContent := p.renderToolCallBatch(p.pendingToolCalls)
+		p.messages = append(p.messages, NewChatMessage("System", toolCallContent))
+		p.pendingToolCalls = []ToolCallMessage{}
+	}
+
+	return p, nil
 }
 
 func (p Model) handlePaste(msg tea.PasteMsg) (Model, tea.Cmd) {
@@ -184,7 +202,6 @@ func (p Model) resizeComponents() Model {
 
 func (p Model) handleUserInput(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	if p.confirmDialog.Visible() {
-		// skip updates if we're sending key messages to the dialog
 		return p, nil
 	}
 
@@ -208,12 +225,15 @@ func (p Model) handleUserInput(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			return p.refreshMessages()
 		}
 
+		p, _ = p.flushToolCallMessages()
+
 		p.messages = append(p.messages, NewChatMessage("You", text))
 		p.userChan <- text
 
+		p, _ = p.flushToolCallMessages()
+
 		return p.refreshMessages()
 	default:
-		// All other keypresses  pass through to the textarea
 		p.textarea, cmd = p.textarea.Update(msg)
 	}
 
@@ -225,6 +245,16 @@ func (p Model) handleUserInputConfirmation(msg DecisionMessage) (Model, tea.Cmd)
 	p.confirmDialog, dCmd = p.confirmDialog.handleDecision(msg)
 
 	p = p.resizeComponents()
+
+	// Update the last pending tool call with the final status
+	status := "denied"
+	if msg.Approved {
+		status = "approved"
+	}
+	if len(p.pendingToolCalls) > 0 {
+		lastToolCall := &p.pendingToolCalls[len(p.pendingToolCalls)-1]
+		lastToolCall.Status = status
+	}
 
 	ch := p.currentConfirmationRequest.ResultChan
 	cmd := func() tea.Msg {
@@ -241,13 +271,24 @@ func (p Model) handleGenerationStopped(_ GenerationStopped) (Model, tea.Cmd) {
 	return p.refreshMessages()
 }
 
+func (p Model) handleToolCallMessage(msg ToolCallMessage) (Model, tea.Cmd) {
+	log.Logger.Info().Msgf("received tool call message: id=%s, name=%s, status=%s", msg.ID, msg.ToolName, msg.Status)
+	p.pendingToolCalls = append(p.pendingToolCalls, msg)
+	return p.refreshMessages()
+}
+
 func (p Model) refreshMessages() (Model, tea.Cmd) {
 	wasAtBottom := p.viewport.AtBottom()
 	var contentMessages []ChatMessage
+	contentMessages = p.messages
+
+	if len(p.pendingToolCalls) > 0 {
+		renderedToolCalls := p.renderToolCallBatch(p.pendingToolCalls)
+		contentMessages = append(contentMessages, NewChatMessage("System", renderedToolCalls))
+	}
+
 	if p.agentActive {
-		contentMessages = append(p.messages, NewChatMessage("Cosmo", p.agentChunks+" "+p.spinner.View()))
-	} else {
-		contentMessages = p.messages
+		contentMessages = append(contentMessages, NewChatMessage("Cosmo", p.agentChunks+" "+p.spinner.View()))
 	}
 
 	cosmoColor := lipgloss.Color("#9900ff")
@@ -284,6 +325,55 @@ func (p Model) refreshMessages() (Model, tea.Cmd) {
 	}
 
 	return p, nil
+}
+
+func (p Model) renderToolCallBatch(toolCalls []ToolCallMessage) string {
+	var sb strings.Builder
+
+	//sb.WriteString("\n\n**Tool Calls:**\n\n")
+
+	for _, tc := range toolCalls {
+		//var fg color.Color
+		var prefix string
+
+		switch tc.Status {
+		case "approved":
+			//fg = lipgloss.Color("#22c55e")
+			prefix = "✅"
+		case "denied":
+			//fg = lipgloss.Color("#ef4444")
+			prefix = "❌"
+		case "error":
+			//fg = lipgloss.Color("#f97318")
+			prefix = "⚠️"
+		default:
+			//fg = lipgloss.Color("#eab308")
+			prefix = "⏳"
+		}
+
+		displayName := tc.ToolName
+		if tc.ID != "" {
+			displayName = fmt.Sprintf("%s", tc.ToolName)
+		}
+
+		item := fmt.Sprintf("- %s **%s**", prefix, displayName)
+		if tc.Args != "" {
+			item += fmt.Sprintf("\n  `%s`", truncateString(tc.Args, 60))
+		}
+
+		//rendered := lipgloss.NewStyle().Foreground(fg).Render(item)
+		sb.WriteString(item)
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return "..." + s[len(s)-1-maxLen:]
 }
 
 func (p Model) View() tea.View {
