@@ -150,10 +150,13 @@ func (llama LlamacppProvider) Completion(ctx context.Context, userMessage, syste
 			Role:    "system",
 			Content: cfg.systemPrompt,
 		},
-		{
+	}
+
+	if userMessage != "" {
+		messages = append(messages, CompletionMessage{
 			Role:    "user",
 			Content: userMessage,
-		},
+		})
 	}
 
 	payload := CompletionPayload{

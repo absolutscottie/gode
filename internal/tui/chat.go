@@ -29,6 +29,7 @@ type Model struct {
 	agentActive                bool
 	currentConfirmationRequest ConfirmationRequest
 	pendingToolCalls           []ToolCallMessage
+	windowTitle                string
 }
 
 func InitialModel(userChan chan any, cancelChan chan any) tea.Model {
@@ -51,7 +52,7 @@ func InitialModel(userChan chan any, cancelChan chan any) tea.Model {
 	vp.KeyMap.Right.SetEnabled(false)
 
 	s := spinner.New()
-	s.Spinner = spinner.Dot
+	s.Spinner = spinner.Points
 
 	p := Model{
 		textarea:         ta,
@@ -75,6 +76,9 @@ func (p Model) Init() tea.Cmd {
 func (p Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var mCmd, dCmd tea.Cmd
 	switch msg := msg.(type) {
+	case WindowTitleChangedMessage:
+		p, mCmd = p.handleWidonwTitleChanged(msg)
+
 	case ConfirmationRequest:
 		p, mCmd = p.handleConfirmationRequest(msg)
 
@@ -122,6 +126,11 @@ func (p Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return p, tea.Batch(mCmd, dCmd)
+}
+
+func (p Model) handleWidonwTitleChanged(msg WindowTitleChangedMessage) (Model, tea.Cmd) {
+	p.windowTitle = msg.Title
+	return p, nil
 }
 
 func (p Model) handleAgentStart(_ AgentStart) (Model, tea.Cmd) {
@@ -393,5 +402,6 @@ func (p Model) View() tea.View {
 	}
 	v.Cursor = c
 	v.AltScreen = false
+
 	return v
 }

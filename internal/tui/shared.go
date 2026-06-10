@@ -14,6 +14,10 @@ type AgentStart struct{}
 
 type AgentStop struct{}
 
+type WindowTitleChangedMessage struct {
+	Title string
+}
+
 type ConfirmationRequest struct {
 	ResultChan chan bool
 	Question   string

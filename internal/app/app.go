@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"gode/config/prompts"
 	"gode/internal/agent"
@@ -22,6 +23,13 @@ const (
 	ToolRole   string = "tool"
 )
 
+// Context compression thresholds
+const (
+	MaxContextSize    = 49152 // tokens
+	CompressThreshold = 80    // compress at 80% (per mille)
+	NPredictFraction  = 2457  // 5% of 49152
+)
+
 // toolRegistry maps tool names to their implementations.
 var toolRegistry = map[string]filesystem.Tool{}
 
@@ -36,6 +44,7 @@ type App struct {
 	fileList          []string
 	currentCancelFunc context.CancelFunc
 	firstUserMsgSent  bool
+	tokensUsed        int
 }
 
 // New creates a new App with the given configuration.
@@ -86,6 +95,9 @@ func (a *App) Run() (tea.Model, error) {
 		ConfirmFn:     func(s string) bool { return a.promptAndWait(s) },
 		StartFn:       func() { a.sendAgentStart() },
 		StopFn:        func() { a.sendAgentStop() },
+		TokenUsageFn: func(u agent.Usage) {
+			a.tokensUsed = u.PromptTokens
+		},
 	}
 
 	go a.userLoop()
@@ -115,6 +127,11 @@ func (a *App) userLoop() {
 		if !a.firstUserMsgSent {
 			a.firstUserMsgSent = true
 			a.generateSessionTitle()
+		}
+
+		// Compress context if it exceeds the threshold
+		if a.shouldCompressContext() {
+			a.compressContext()
 		}
 
 		var cancelCtx context.Context
@@ -197,6 +214,90 @@ func (a *App) userLoop() {
 	}
 }
 
+// shouldCompressContext returns true if the current session has used enough
+// prompt tokens to warrant context compression.
+func (a *App) shouldCompressContext() bool {
+	if a.tokensUsed == 0 {
+		return false
+	}
+	threshold := MaxContextSize * CompressThreshold / 100
+	return a.tokensUsed > threshold
+}
+
+// compressContext sends the full conversation history to the LLM via the
+// non-streaming endpoint and replaces the session messages with a compressed
+// summary. The system prompt embeds all messages so the LLM treats them as
+// a conversation history to summarize, not as messages to respond to.
+func (a *App) compressContext() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Build the conversation history string from all messages except the system prompt.
+	var sb strings.Builder
+	for i := 1; i < len(a.session.Messages); i++ {
+		msg := a.session.Messages[i]
+		role := strings.Title(strings.ToLower(msg.Role))
+		sb.WriteString(fmt.Sprintf("%s: %s\n", role, msg.Content))
+	}
+	conversationHistory := sb.String()
+
+	systemPrompt := fmt.Sprintf(`You are an advanced context-compression module for an LLM agent harness.
+Your job is to compress the provided conversation history into a dense, technically accurate summary.
+
+CRITICAL INSTRUCTIONS:
+1. Do not engage in or reply to the user's questions in the log. Only summarize.
+2. You should aim to reduce the overall size of the data by 80%%, but prioritize technical completeness over strict length limits.
+3. Preserve all critical project constraints, chosen technologies, file paths, database schemas, and configuration values.
+4. Keep track of the current state of the agent's tasks (e.g., "User asked for X, agent completed Y, currently debugging Z").
+5. Do not lose specific error messages or exact function names discussed.
+
+<conversation_history>
+%s
+</conversation_history>`, conversationHistory)
+
+	a.logger.Info().Msg("compressing context history")
+
+	summary, err := a.llm.Completion(ctx, "", systemPrompt,
+		llamacpp.WithCachePrompt(false),
+		llamacpp.WithNPredict(NPredictFraction),
+		llamacpp.WithTemperature(0.2),
+	)
+	if err != nil {
+		a.logger.Error().Err(err).Msg("failed to compress context")
+		return
+	}
+
+	if summary == "" {
+		a.logger.Warn().Msg("compression returned empty summary, skipping")
+		return
+	}
+
+	// Replace session messages: keep system prompt, add compressed summary, then the latest user/agent exchange.
+	var compressed []agent.Message
+	compressed = append(compressed, a.session.Messages[0]) // system prompt
+
+	// Keep the last 2 messages (user + agent/tool exchange) uncompressed for immediate context.
+	remaining := len(a.session.Messages) - 2
+	if remaining < 0 {
+		remaining = 0
+	}
+
+	// Add compressed summary
+	compressed = append(compressed, agent.Message{
+		Role:    AgentRole,
+		Content: summary,
+	})
+
+	// Append the last 2 messages (last user message and last agent/tool response)
+	if remaining > 0 && len(a.session.Messages) > 2 {
+		compressed = append(compressed, a.session.Messages[remaining:]...)
+	}
+
+	a.session.Messages = compressed
+	a.tokensUsed = 0
+	a.logger.Info().Int("compressed_to", len(compressed)).Msg("context compressed")
+}
+
 // generateSessionTitle sends a non-cached completion request to summarize
 // the first user message as a short session title.
 func (a *App) generateSessionTitle() {
@@ -232,6 +333,8 @@ func (a *App) generateSessionTitle() {
 	}
 
 	a.logger.Info().Str("title", title).Msg("session title generated")
+
+	a.sendWindowTitleChanged(title)
 }
 
 // sendToolCallPending sends a pending tool call message to the TUI.
@@ -266,6 +369,10 @@ func (a *App) promptAndWait(userPrompt string) bool {
 	answer := <-cr.ResultChan
 	close(cr.ResultChan)
 	return answer
+}
+
+func (a *App) sendWindowTitleChanged(title string) {
+	a.ui.Send(tui.WindowTitleChangedMessage{Title: title})
 }
 
 // sendAgentStart notifies the TUI that the agent has started.
